@@ -15,17 +15,20 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: true,
+        headerTitle: 'Image → PDF',
         headerTitleStyle: {
-           fontWeight: 'bold',
+           fontWeight: '900',
+           fontSize: 22,
+           letterSpacing: -0.5,
         },
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'My Documents',
-          tabBarLabel: 'Library',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="doc.text.fill" color={color} />,
+          title: 'Image → PDF',
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen

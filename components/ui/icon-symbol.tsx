@@ -6,7 +6,8 @@ import { SymbolViewProps, SymbolWeight } from 'expo-symbols';
 import { ComponentProps } from 'react';
 import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
 
-type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
+// Fix: Use Partial to allow a record with only some of the keys from SymbolViewProps['name'].
+type IconMapping = Partial<Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>>;
 type IconSymbolName = keyof typeof MAPPING;
 
 /**
@@ -29,7 +30,15 @@ const MAPPING = {
   'gearshape.fill': 'settings',
   'bell.fill': 'notifications',
   'lock.fill': 'lock',
-  'exclamationmark.triangle.fill': 'warning'
+  'exclamationmark.triangle.fill': 'warning',
+  'eye.fill': 'visibility',
+  'ellipsis': 'more-vert',
+  'pencil': 'edit',
+  'rotate.right': 'rotate-right',
+  'paintbrush': 'brush',
+  'aspectratio': 'aspect-ratio',
+  'slider.horizontal.3': 'tune',
+  'checkmark': 'check'
 } as IconMapping;
 
 /**
