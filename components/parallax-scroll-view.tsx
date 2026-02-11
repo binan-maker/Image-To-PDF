@@ -27,6 +27,9 @@ export default function ParallaxScrollView({
   const colorScheme = useColorScheme() ?? 'light';
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const scrollOffset = useScrollOffset(scrollRef);
+  
+  // Fix: Explicitly cast the returned style to any to resolve transform inference issues 
+  // that lead to incompatible style assignments in the style array.
   const headerAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform: [
@@ -41,7 +44,7 @@ export default function ParallaxScrollView({
           scale: interpolate(scrollOffset.value, [-HEADER_HEIGHT, 0, HEADER_HEIGHT], [2, 1, 1]),
         },
       ],
-    };
+    } as any;
   });
 
   return (

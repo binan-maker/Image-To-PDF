@@ -25,7 +25,11 @@ const MAPPING = {
   'trash.fill': 'delete',
   'square.and.arrow.up': 'share',
   'photo.on.rectangle.angled': 'collections',
-  'checkmark.circle.fill': 'check-circle'
+  'checkmark.circle.fill': 'check-circle',
+  'gearshape.fill': 'settings',
+  'bell.fill': 'notifications',
+  'lock.fill': 'lock',
+  'exclamationmark.triangle.fill': 'warning'
 } as IconMapping;
 
 /**
