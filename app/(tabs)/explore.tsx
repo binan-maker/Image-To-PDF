@@ -1,9 +1,9 @@
-
-import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
-// Fix: Use 'expo-file-system/legacy' to access documentDirectory property which may be missing from the default import in some environments.
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, SlideInRight, ZoomIn } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -14,10 +14,15 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const themeColors = Colors[colorScheme];
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
 
-  const [storageSize, setStorageSize] = useState('0 MB');
+  const [storageSize, setStorageSize] = useState('0.00 MB');
   const [docCount, setDocCount] = useState(0);
-  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  
+  const [versionClicks, setVersionClicks] = useState(0);
+  const [showSecret, setShowSecret] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
   const calculateStorage = async () => {
     try {
@@ -44,7 +49,6 @@ export default function SettingsScreen() {
   }, []);
 
   const handleClearLibrary = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert(
       'Clear All Documents',
       'This will permanently delete all generated PDF files. This action cannot be undone.',
@@ -58,11 +62,10 @@ export default function SettingsScreen() {
             if (!docDir) return;
             const files = await FileSystem.readDirectoryAsync(docDir);
             for (const file of files) {
-              if (file.toLowerCase().endsWith('.pdf')) {
+              if (file.toLowerCase().endsWith('.pdf') || file.toLowerCase().endsWith('.jpg')) {
                 await FileSystem.deleteAsync(`${docDir}${file}`);
               }
             }
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             calculateStorage();
             Alert.alert('Success', 'Library has been cleared.');
           }
@@ -71,106 +74,242 @@ export default function SettingsScreen() {
     );
   };
 
-  const SettingItem = ({ 
+  const handleVersionPress = () => {
+    const nextCount = versionClicks + 1;
+    if (nextCount >= 3) {
+      setShowSecret(true);
+      setVersionClicks(0);
+    } else {
+      setVersionClicks(nextCount);
+    }
+  };
+
+  // Removed Animated.View entering from row to prevent "reloading" sensation on state changes
+  const SettingRow = ({ 
     icon, 
     title, 
     subtitle, 
     onPress, 
-    rightElement, 
     isDestructive 
   }: { 
     icon: any, 
     title: string, 
     subtitle?: string, 
     onPress?: () => void, 
-    rightElement?: React.ReactNode,
-    isDestructive?: boolean
+    isDestructive?: boolean 
   }) => (
     <TouchableOpacity 
-      style={styles.settingItem} 
+      style={[styles.rowCard, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF' }]} 
       onPress={onPress} 
-      disabled={!onPress}
       activeOpacity={0.7}
     >
-      <View style={[styles.iconContainer, { backgroundColor: isDestructive ? '#FFEBEE' : (colorScheme === 'dark' ? '#2A2D2F' : '#F0F2F5') }]}>
-        <IconSymbol name={icon} size={22} color={isDestructive ? '#D32F2F' : themeColors.icon} />
+      <View style={[styles.iconWrapper, { backgroundColor: isDestructive ? '#FF3B30' : '#007AFF' }]}>
+        <IconSymbol name={icon} size={18} color="#FFFFFF" />
+        <View style={styles.iconGloss} />
       </View>
-      <View style={styles.textContainer}>
-        <ThemedText type="defaultSemiBold" style={isDestructive ? { color: '#D32F2F' } : undefined}>{title}</ThemedText>
-        {subtitle && <ThemedText style={styles.subtitle}>{subtitle}</ThemedText>}
+      <View style={styles.rowContent}>
+        <ThemedText style={[styles.rowTitle, isDestructive ? { color: '#FF3B30' } : undefined]}>{title}</ThemedText>
+        {subtitle && <ThemedText style={styles.rowSubtitle}>{subtitle}</ThemedText>}
       </View>
-      {rightElement}
-      {!rightElement && onPress && <IconSymbol name="chevron.right" size={20} color={themeColors.icon} style={{ opacity: 0.3 }} />}
+      <IconSymbol name="chevron.right" size={14} color={themeColors.icon} style={{ opacity: 0.3 }} />
     </TouchableOpacity>
   );
 
-  const SectionHeader = ({ title }: { title: string }) => (
-    <ThemedText style={[styles.sectionHeader, { color: themeColors.tint }]}>{title.toUpperCase()}</ThemedText>
+  const ManualSection = ({ title, icon, color, description, steps }: { title: string, icon: any, color: string, description: string, steps: string[] }) => (
+    <Animated.View entering={SlideInRight.springify()} style={[styles.manualSection, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF' }]}>
+      <View style={styles.manualHeader}>
+        <View style={[styles.manualIcon, { backgroundColor: color }]}>
+          <IconSymbol name={icon} size={20} color="#FFF" />
+          <View style={styles.iconGloss} />
+        </View>
+        <ThemedText style={styles.manualSectionTitle}>{title}</ThemedText>
+      </View>
+      <ThemedText style={styles.manualDescription}>{description}</ThemedText>
+      {steps.map((step, idx) => (
+        <View key={idx} style={styles.stepRow}>
+          <View style={[styles.stepNumber, { borderColor: color }]}>
+            <ThemedText style={[styles.stepNumberText, { color }]}>{idx + 1}</ThemedText>
+          </View>
+          <ThemedText style={styles.stepText}>{step}</ThemedText>
+        </View>
+      ))}
+    </Animated.View>
   );
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* Symmetrical Header (matches Document Archive) */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity 
+          style={[styles.backButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
+          onPress={() => router.back()}
+        >
+          <IconSymbol name="chevron.right" size={22} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} />
+        </TouchableOpacity>
         
-        <SectionHeader title="General" />
-        <SettingItem 
-          icon="bell.fill" 
-          title="Haptic Feedback" 
-          subtitle="Vibrate on user interaction"
-          rightElement={
-            <Switch 
-              value={hapticsEnabled} 
-              onValueChange={(val) => {
-                setHapticsEnabled(val);
-                if(val) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              }}
-              trackColor={{ false: '#767577', true: themeColors.tint }}
-            />
-          }
+        <ThemedText style={styles.headerTitle}>SETTINGS</ThemedText>
+        
+        {/* Spacer for perfect center alignment */}
+        <View style={styles.headerSpacer} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.hubContainer}>
+          <View style={[styles.hubCard, styles.primaryHub]}>
+            <ThemedText style={styles.hubStatValue}>{docCount}</ThemedText>
+            <View>
+              <ThemedText style={styles.hubStatLabel}>DOCS</ThemedText>
+              <ThemedText style={styles.hubStatSub}>In Library</ThemedText>
+            </View>
+            <View style={styles.hubDecoration}><IconSymbol name="doc.text.fill" size={40} color="rgba(255,255,255,0.15)" /></View>
+          </View>
+          <View style={[styles.hubCard, styles.secondaryHub]}>
+            <ThemedText style={styles.hubStatValue}>{storageSize.split(' ')[0]}</ThemedText>
+            <View>
+              <ThemedText style={styles.hubStatLabel}>MB USED</ThemedText>
+              <ThemedText style={styles.hubStatSub}>Device Space</ThemedText>
+            </View>
+            <View style={styles.hubDecoration}><IconSymbol name="photo.on.rectangle.angled" size={40} color="rgba(255,255,255,0.15)" /></View>
+          </View>
+        </View>
+
+        <ThemedText style={styles.sectionHeader}>GENERAL</ThemedText>
+        <SettingRow 
+          icon="paintbrush" 
+          title="Interface Theme" 
+          subtitle={`Running in ${colorScheme} mode`}
         />
-        <SettingItem 
-          icon="checkmark.circle.fill" 
-          title="Theme Mode" 
-          subtitle={`Currently using ${colorScheme} appearance`}
+        <SettingRow 
+          icon="info.circle.fill" 
+          title="User Manual" 
+          subtitle="Learn how to use Image → PDF"
+          onPress={() => setShowManual(true)}
         />
 
-        <View style={styles.divider} />
-
-        <SectionHeader title="Storage Management" />
-        <SettingItem 
-          icon="photo.on.rectangle.angled" 
-          title="Library Stats" 
-          subtitle={`${docCount} Documents • ${storageSize}`}
+        <ThemedText style={styles.sectionHeader}>MAINTENANCE</ThemedText>
+        <SettingRow 
+          icon="rotate.right" 
+          title="Recalculate Stats" 
+          subtitle="Refresh storage metrics"
           onPress={calculateStorage}
         />
-        <SettingItem 
+        <SettingRow 
           icon="trash.fill" 
-          title="Clear Library" 
-          subtitle="Delete all generated PDF files"
+          title="Clear Archive" 
+          subtitle="Permanently delete all PDFs"
           onPress={handleClearLibrary}
           isDestructive
         />
 
-        <View style={styles.divider} />
-
-        <SectionHeader title="Support & About" />
-        <SettingItem 
-          icon="info.circle.fill" 
-          title="Help Center" 
-          subtitle="FAQs and User Guide"
-          onPress={() => Alert.alert('Help', 'Guide coming soon!')}
-        />
-        <SettingItem 
+        <ThemedText style={styles.sectionHeader}>ABOUT</ThemedText>
+        <SettingRow 
           icon="checkmark.circle.fill" 
           title="App Version" 
-          subtitle="1.0.0 (Build 20241028)"
+          subtitle="v1.0.1 Stable"
+          onPress={handleVersionPress}
         />
-        
-        <View style={styles.footer}>
-          <ThemedText style={styles.footerText}>Made with ❤️ for PDF Management</ThemedText>
-        </View>
 
+        <View style={styles.footer}>
+          <View style={styles.footerLine} />
+          <ThemedText style={styles.footerText}>IMAGE TO PDF PREMIUM</ThemedText>
+          <ThemedText style={styles.footerSubText}>Designed for High Productivity</ThemedText>
+        </View>
       </ScrollView>
+
+      {/* User Manual Modal */}
+      <Modal visible={showManual} animationType="slide" presentationStyle="pageSheet">
+        <ThemedView style={styles.container}>
+          {/* Aligned Modal Header - Added insets.top to fix "too high up" issue */}
+          <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+            <TouchableOpacity 
+              style={[styles.backButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
+              onPress={() => setShowManual(false)}
+            >
+              <IconSymbol name="chevron.right" size={22} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} />
+            </TouchableOpacity>
+            
+            <ThemedText style={styles.headerTitle}>USER MANUAL</ThemedText>
+            
+            <View style={styles.headerSpacer} />
+          </View>
+
+          <ScrollView contentContainerStyle={styles.manualScroll} showsVerticalScrollIndicator={false}>
+            <View style={styles.manualIntro}>
+              <ThemedText style={styles.manualIntroTitle}>Master Your Documents</ThemedText>
+              <ThemedText style={styles.manualIntroSub}>A quick guide to using Image → PDF premium features.</ThemedText>
+            </View>
+
+            <ManualSection 
+              title="Creating PDFs" 
+              icon="plus" 
+              color="#007AFF"
+              description="Quickly convert your photo gallery into professional documents."
+              steps={[
+                "Tap 'Select Images' on the Home screen hub.",
+                "Choose multiple photos from your library.",
+                "Long-press any thumbnail to drag and reorder pages.",
+                "Give your document a clear title.",
+                "Tap 'Generate PDF' and wait for the ink to dry."
+              ]}
+            />
+
+            <ManualSection 
+              title="Library Management" 
+              icon="photo.on.rectangle.angled" 
+              color="#FF3B30"
+              description="Keep your digital archive clean and organized."
+              steps={[
+                "Tap 'View All PDFs' to enter your full archive.",
+                "Use the search icon at the top to find specific files instantly.",
+                "Tap the ellipsis menu (⋯) on any card for actions.",
+                "Rename files to keep your storage searchable.",
+                "Delete old drafts to save space on your device."
+              ]}
+            />
+
+            <ManualSection 
+              title="Pro Tips" 
+              icon="paintbrush" 
+              color="#FFD700"
+              description="Get the most out of your premium experience."
+              steps={[
+                "Drag and drop isn't just for ordering - it's for flow.",
+                "Use high-quality images for the sharpest PDF results.",
+                "Share directly from the archive to email or cloud storage.",
+                "Keep an eye on the hub stats for storage management."
+              ]}
+            />
+            
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </ThemedView>
+      </Modal>
+
+      {/* Secret Modal */}
+      <Modal visible={showSecret} transparent animationType="none">
+        <Pressable style={styles.secretOverlay} onPress={() => setShowSecret(false)}>
+          <Animated.View entering={FadeIn.duration(400)} style={StyleSheet.absoluteFill}>
+            <View style={styles.secretBlurBackdrop} />
+          </Animated.View>
+          
+          <Animated.View entering={ZoomIn.springify()} exiting={FadeOut} style={styles.secretCard}>
+            <ThemedText style={styles.secretPreTitle}>THE FUTURE REVEALED</ThemedText>
+            <ThemedText style={styles.secretBinanText}>BINAN</ThemedText>
+            <View style={styles.secretDividerGold} />
+            <ThemedText style={styles.secretDescription}>The Worlds First Trillionaire</ThemedText>
+            <View style={styles.secretDateContainer}>
+              <ThemedText style={styles.secretDateLabel}>MARK THE DATE</ThemedText>
+              <ThemedText style={styles.secretDateValue}>2027 MARCH 20</ThemedText>
+            </View>
+            <TouchableOpacity 
+              style={styles.secretCloseBtn} 
+              onPress={() => setShowSecret(false)}
+            >
+              <ThemedText style={styles.secretCloseBtnText}>DISMISS</ThemedText>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </ThemedView>
   );
 }
@@ -179,50 +318,312 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginBottom: 12,
-    marginTop: 16,
-    opacity: 0.8,
-  },
-  settingItem: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 15,
   },
-  iconContainer: {
+  headerSpacer: {
+    width: 44, // Matches backButton width for centering
+  },
+  backButton: {
     width: 44,
     height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2, // Matched Document Archive
+    shadowOpacity: 0.1,
+    shadowRadius: 4, // Matched Document Archive
+    shadowOffset: { width: 0, height: 2 },
+  },
+  headerTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    opacity: 0.9, // Matched Document Archive
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
+  hubContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    height: 140,
+  },
+  hubCard: {
+    flex: 1,
+    borderRadius: 24,
+    padding: 16,
+    justifyContent: 'space-between',
+    elevation: 8,
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    overflow: 'hidden',
+  },
+  primaryHub: { backgroundColor: '#007AFF' },
+  secondaryHub: { backgroundColor: '#FF3B30' },
+  hubStatValue: {
+    color: '#FFF',
+    fontSize: 32,
+    fontWeight: '900',
+  },
+  hubStatLabel: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  hubStatSub: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  hubDecoration: {
+    position: 'absolute',
+    right: -10,
+    bottom: -10,
+  },
+  sectionHeader: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    marginBottom: 12,
+    marginTop: 24,
+    marginHorizontal: 25,
+    opacity: 0.3,
+  },
+  rowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 20,
+    elevation: 2,
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  iconWrapper: {
+    width: 38,
+    height: 38,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 14,
+    overflow: 'hidden',
   },
-  textContainer: {
+  iconGloss: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '40%',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  rowContent: {
     flex: 1,
   },
-  subtitle: {
-    fontSize: 13,
-    opacity: 0.5,
-    marginTop: 2,
+  rowTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    marginVertical: 12,
+  rowSubtitle: {
+    fontSize: 12,
+    opacity: 0.4,
+    marginTop: 1,
+    fontWeight: '500',
   },
   footer: {
+    marginTop: 50,
+    alignItems: 'center',
+    paddingBottom: 20,
+  },
+  footerLine: {
+    width: 30,
+    height: 3,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 2,
+    marginBottom: 15,
+  },
+  footerText: {
+    fontSize: 11,
+    opacity: 0.25,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+  },
+  footerSubText: {
+    fontSize: 9,
+    opacity: 0.15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  manualScroll: {
+    paddingHorizontal: 20,
+    paddingBottom: 50,
+  },
+  manualIntro: {
+    marginVertical: 20,
+    alignItems: 'center',
+  },
+  manualIntroTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  manualIntroSub: {
+    fontSize: 14,
+    opacity: 0.5,
+    marginTop: 5,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  manualSection: {
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    elevation: 2,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  manualHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  manualIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    overflow: 'hidden',
+  },
+  manualSectionTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  manualDescription: {
+    fontSize: 14,
+    opacity: 0.6,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  stepNumber: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  stepNumberText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  stepText: {
+    fontSize: 13,
+    fontWeight: '600',
+    opacity: 0.8,
+    flex: 1,
+  },
+  secretOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 30,
+  },
+  secretBlurBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  secretCard: {
+    width: '100%',
+    alignItems: 'center',
+    padding: 40,
+    borderRadius: 40,
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: '#FFD700',
+    shadowColor: '#FFD700',
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  secretPreTitle: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#FFD700',
+    letterSpacing: 4,
+    marginBottom: 10,
+  },
+  secretBinanText: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: '#FFF',
+    letterSpacing: 10,
+  },
+  secretDividerGold: {
+    width: 60,
+    height: 4,
+    backgroundColor: '#FFD700',
+    marginVertical: 20,
+    borderRadius: 2,
+  },
+  secretDescription: {
+    fontSize: 18,
+    fontWeight: '300',
+    color: '#FFF',
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  secretDateContainer: {
     marginTop: 40,
     alignItems: 'center',
   },
-  footerText: {
+  secretDateLabel: {
     fontSize: 12,
-    opacity: 0.3,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.4)',
+    letterSpacing: 2,
+    marginBottom: 5,
+  },
+  secretDateValue: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#FF3B30', 
+    letterSpacing: 1,
+  },
+  secretCloseBtn: {
+    marginTop: 50,
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  secretCloseBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFF',
+    letterSpacing: 2,
   },
 });

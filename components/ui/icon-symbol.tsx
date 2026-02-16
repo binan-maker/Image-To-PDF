@@ -38,7 +38,8 @@ const MAPPING = {
   'paintbrush': 'brush',
   'aspectratio': 'aspect-ratio',
   'slider.horizontal.3': 'tune',
-  'checkmark': 'check'
+  'checkmark': 'check',
+  'magnifyingglass': 'search'
 } as IconMapping;
 
 /**

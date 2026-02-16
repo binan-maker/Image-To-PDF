@@ -1,12 +1,10 @@
-
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { memo, useCallback, useEffect, useState } from 'react';
 import type { ListRenderItem } from 'react-native';
 import {
   ActivityIndicator,
@@ -30,15 +28,15 @@ import {
   GestureHandlerRootView
 } from 'react-native-gesture-handler';
 import Animated, {
-  FadeIn,
   FadeInDown,
-  FadeOut,
   LinearTransition,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
+  withSequence,
   withSpring,
-  ZoomIn,
+  ZoomIn
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -54,6 +52,7 @@ interface PdfDoc {
   date: string;
   size: string;
   uri: string;
+  thumbnailUri?: string;
   timestamp: number;
 }
 
@@ -62,26 +61,90 @@ const GRID_PADDING = 20;
 const GAP = 12;
 const ITEM_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GAP) / 2;
 
+// Signature Brand Colors
+const PDF_RED = '#E53935';
+const ACCENT_BLUE = '#007AFF';
+
 const STATUS_MESSAGES = [
-  "Mixing ink...",
+  "Mixing premium ink...",
   "Applying paper texture...",
-  "Processing filters...",
-  "Flattening pages...",
-  "Baking PDF...",
+  "Stitching pages together...",
+  "Finalizing document layers...",
+  "Baking your PDF file...",
 ];
 
-const SHEET_COLORS = [
-  { label: 'Standard', hex: '#FFFFFF', text: '#000000' },
-  { label: 'Ivory', hex: '#FFFBF2', text: '#1A1A1A' },
-  { label: 'Slate', hex: '#2C3E50', text: '#FFFFFF' },
-  { label: 'Eco Grey', hex: '#F0F0F0', text: '#333333' },
-];
+const DraggableItem = memo(({ 
+  uri, 
+  index, 
+  total, 
+  onSwap, 
+  onRemove 
+}: { 
+  uri: string, 
+  index: number, 
+  total: number, 
+  onSwap: (from: number, to: number) => void,
+  onRemove: (idx: number) => void
+}) => {
+  const isDragging = useSharedValue(false);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: withSpring(isDragging.value ? 1.08 : 1) },
+    ],
+    zIndex: isDragging.value ? 1000 : 1,
+    shadowOpacity: withSpring(isDragging.value ? 0.3 : 0.08),
+  } as any));
 
-const IMAGE_FILTERS = [
-  { id: 'none', label: 'Original', icon: 'photo.on.rectangle.angled' },
-  { id: 'bw', label: 'Scanner', icon: 'checkmark.circle.fill' },
-  { id: 'vivid', label: 'Vivid', icon: 'paintbrush' },
-];
+  const dragGesture = Gesture.Pan()
+    .activateAfterLongPress(250)
+    .onStart(() => {
+      isDragging.value = true;
+    })
+    .onUpdate((e) => {
+      translateX.value = e.translationX;
+      translateY.value = e.translationY;
+    })
+    .onEnd((e) => {
+      const colShift = Math.round(e.translationX / (ITEM_WIDTH + GAP));
+      const rowShift = Math.round(e.translationY / (ITEM_WIDTH + GAP));
+      const indexShift = colShift + (rowShift * 2);
+      const targetIndex = Math.max(0, Math.min(total - 1, index + indexShift));
+      if (targetIndex !== index) runOnJS(onSwap)(index, targetIndex);
+      translateX.value = withSpring(0);
+      translateY.value = withSpring(0);
+      isDragging.value = false;
+    });
+
+  return (
+    <GestureDetector gesture={dragGesture}>
+      <Animated.View layout={LinearTransition.springify()} style={[styles.imageCardContainer, animatedStyle]}>
+        <View style={styles.imageCard}>
+          <Image source={{ uri }} style={[styles.previewThumbnail]} contentFit="cover" cachePolicy="memory-disk" />
+          
+          <TouchableOpacity 
+            style={styles.removeImageBtn} 
+            onPress={() => onRemove(index)}
+          >
+            <View style={styles.removeIconCircle}>
+              <IconSymbol name="plus" size={12} color="#FFF" style={{ transform: [{ rotate: '45deg' }] }} />
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.orderRibbon}>
+            <ThemedText style={styles.orderRibbonText}>PG {index + 1}</ThemedText>
+          </View>
+          
+          <View style={styles.thumbnailGloss} />
+        </View>
+      </Animated.View>
+    </GestureDetector>
+  );
+});
 
 export default function LibraryScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -95,16 +158,12 @@ export default function LibraryScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showFullLibrary, setShowFullLibrary] = useState(false);
+  const [isSearchActive, setIsSearchActive] = useState(false);
   
   const [pdfName, setPdfName] = useState('');
-  const [selectedColor, setSelectedColor] = useState(SHEET_COLORS[0]);
-  const [selectedFilter, setSelectedFilter] = useState('none');
   const [statusIdx, setStatusIdx] = useState(0);
-
-  // Search in full library
   const [libSearchQuery, setLibSearchQuery] = useState('');
 
-  // Desktop Menu State
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -112,16 +171,28 @@ export default function LibraryScreen() {
     item: PdfDoc | null;
   }>({ visible: false, x: 0, y: 0, item: null });
 
-  // In-place Rename State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
+
+  const pulse = useSharedValue(1);
+  useEffect(() => {
+    if (isProcessing) {
+      pulse.value = withRepeat(
+        withSequence(withSpring(1.05), withSpring(1)),
+        -1,
+        false
+      );
+    } else {
+      pulse.value = 1;
+    }
+  }, [isProcessing]);
 
   useEffect(() => {
     let interval: any;
     if (isProcessing) {
       interval = setInterval(() => {
         setStatusIdx((prev) => (prev + 1) % STATUS_MESSAGES.length);
-      }, 1200);
+      }, 1500);
     }
     return () => clearInterval(interval);
   }, [isProcessing]);
@@ -138,14 +209,26 @@ export default function LibraryScreen() {
       const pdfDocs: PdfDoc[] = await Promise.all(
         pdfFiles.map(async (fileName) => {
           const fileUri = `${docDir}${fileName}`;
+          const thumbUri = `${docDir}${fileName.replace('.pdf', '.jpg')}`;
+          
           const info = await FileSystem.getInfoAsync(fileUri);
+          const thumbInfo = await FileSystem.getInfoAsync(thumbUri);
+          
           let size = '0 MB';
           let timestamp = 0;
           if (info.exists) {
             size = `${(info.size / (1024 * 1024)).toFixed(2)} MB`;
             timestamp = info.modificationTime || Date.now() / 1000;
           }
-          return { id: fileName, name: fileName, date: new Date(timestamp * 1000).toLocaleDateString(), size, uri: fileUri, timestamp };
+          return { 
+            id: fileName, 
+            name: fileName, 
+            date: new Date(timestamp * 1000).toLocaleDateString(), 
+            size, 
+            uri: fileUri, 
+            thumbnailUri: thumbInfo.exists ? thumbUri : undefined,
+            timestamp 
+          };
         })
       );
       
@@ -175,9 +258,8 @@ export default function LibraryScreen() {
       } else {
         await Sharing.shareAsync(uri);
       }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (error) {
-      Alert.alert('Error', 'Could not open the PDF viewer. Please ensure you have a PDF viewer app installed.');
+      Alert.alert('Error', 'Could not open the PDF viewer.');
     }
   };
 
@@ -188,7 +270,7 @@ export default function LibraryScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
-      quality: 1,
+      quality: 0.8,
     });
 
     if (!result.canceled) {
@@ -197,149 +279,127 @@ export default function LibraryScreen() {
         setSelectedImages(prev => [...prev, ...uris]);
       } else {
         setSelectedImages(uris);
-        const now = new Date();
-        setPdfName(`Doc_${now.getHours()}${now.getMinutes()}`);
+        // Requirement: PDF_random numbers (uniqueness guaranteed)
+        const randomNum = Math.floor(100000 + Math.random() * 900000);
+        setPdfName(`PDF_${randomNum}`);
         setShowDraftModal(true);
       }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
 
   const generatePdf = async () => {
-    if (selectedImages.length === 0) return;
+    if (selectedImages.length === 0) {
+      Alert.alert('No Pages', 'Please add at least one image to create a PDF.');
+      return;
+    }
+    
     setIsProcessing(true);
     try {
-      const base64Images = await Promise.all(
-        selectedImages.map(async (uri) => {
-          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-          return `data:image/jpeg;base64,${base64}`;
-        })
-      );
-
-      let filterCss = '';
-      if (selectedFilter === 'bw') filterCss = 'filter: grayscale(100%) contrast(1.5);';
-      if (selectedFilter === 'vivid') filterCss = 'filter: saturate(1.5) contrast(1.2);';
+      const base64Images: string[] = [];
+      for (const uri of selectedImages) {
+        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+        base64Images.push(`data:image/jpeg;base64,${base64}`);
+      }
 
       const htmlContent = `
         <!DOCTYPE html><html><head><style>
           @page { size: A4; margin: 0; }
-          body { margin: 0; background-color: ${selectedColor.hex}; }
-          .page { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; page-break-after: always; }
-          img { max-width: 90%; max-height: 90%; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); ${filterCss} }
+          body { margin: 0; background-color: #FFFFFF; font-family: sans-serif; }
+          .page { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; page-break-after: always; overflow: hidden; }
+          img { max-width: 90%; max-height: 90%; object-fit: contain; }
         </style></head><body>
-          ${base64Images.map(base64 => `<div class="page"><img src="${base64}" /></div>`).join('')}
+          ${base64Images.map(b64 => `<div class="page"><img src="${b64}" /></div>`).join('')}
         </body></html>
       `;
 
       const { uri: tempUri } = await Print.printToFileAsync({ html: htmlContent });
-      const finalName = `${pdfName.trim() || 'Document'}.pdf`;
-      await FileSystem.copyAsync({ from: tempUri, to: `${FileSystem.documentDirectory}${finalName}` });
+      const docDir = FileSystem.documentDirectory;
+      if (!docDir) throw new Error("Storage unavailable");
+
+      const finalName = `${pdfName.trim() || 'Document'}.pdf`.replace(/[^a-z0-9._-]/gi, '_');
+      const destination = `${docDir}${finalName}`;
+      const thumbDestination = destination.replace('.pdf', '.jpg');
       
-      await loadLibrary();
+      await FileSystem.copyAsync({ from: tempUri, to: destination });
+      if (selectedImages.length > 0) {
+        await FileSystem.copyAsync({ from: selectedImages[0], to: thumbDestination });
+      }
+      
+      await loadLibrary(false);
       setShowDraftModal(false);
       setSelectedImages([]);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
-      Alert.alert('Failed', error.message);
+      Alert.alert('PDF Generation Failed', error.message);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const swapImages = (fromIdx: number, toIdx: number) => {
-    const newImages = [...selectedImages];
-    [newImages[fromIdx], newImages[toIdx]] = [newImages[toIdx], newImages[fromIdx]];
-    setSelectedImages(newImages);
-  };
+  const swapImages = useCallback((fromIdx: number, toIdx: number) => {
+    setSelectedImages(prev => {
+      const newImages = [...prev];
+      [newImages[fromIdx], newImages[toIdx]] = [newImages[toIdx], newImages[fromIdx]];
+      return newImages;
+    });
+  }, []);
+
+  const removeImage = useCallback((idx: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== idx));
+  }, []);
 
   const saveRename = async (item: PdfDoc) => {
-    if (!editingValue.trim() || editingValue.trim() === item.name.replace('.pdf', '')) {
+    const currentBaseName = item.name.replace('.pdf', '');
+    const newValue = editingValue.trim();
+    
+    if (!newValue || newValue === currentBaseName) {
       setEditingId(null);
       return;
     }
     
     try {
-      const newFileName = `${editingValue.trim()}.pdf`;
+      const newFileName = `${newValue}.pdf`;
       const newUri = `${FileSystem.documentDirectory}${newFileName}`;
+      const newThumbUri = newUri.replace('.pdf', '.jpg');
       
       const info = await FileSystem.getInfoAsync(newUri);
       if (info.exists) {
         Alert.alert('Error', 'A file with this name already exists.');
+        setEditingId(null);
         return;
       }
 
       await FileSystem.copyAsync({ from: item.uri, to: newUri });
       await FileSystem.deleteAsync(item.uri);
       
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      loadLibrary();
+      if (item.thumbnailUri) {
+        await FileSystem.copyAsync({ from: item.thumbnailUri, to: newThumbUri });
+        await FileSystem.deleteAsync(item.thumbnailUri);
+      }
+      
+      setPdfs(prev => prev.map(p => {
+        if (p.id === item.id) {
+          return {
+            ...p,
+            id: newFileName,
+            name: newFileName,
+            uri: newUri,
+            thumbnailUri: p.thumbnailUri ? newThumbUri : undefined
+          };
+        }
+        return p;
+      }));
     } catch (e) {
       console.error(e);
       Alert.alert('Rename Failed', 'Could not rename the file.');
     } finally {
       setEditingId(null);
-      Keyboard.dismiss();
     }
   };
 
-  const DraggableItem = ({ uri, index, total }: { uri: string, index: number, total: number }) => {
-    const isDragging = useSharedValue(false);
-    const translateX = useSharedValue(0);
-    const translateY = useSharedValue(0);
-    
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [
-        { translateX: translateX.value },
-        { translateY: translateY.value },
-        { scale: withSpring(isDragging.value ? 1.05 : 1) },
-      ],
-      zIndex: isDragging.value ? 1000 : 1,
-    } as any));
-
-    const dragGesture = Gesture.Pan()
-      .activateAfterLongPress(300)
-      .onStart(() => {
-        isDragging.value = true;
-        runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Medium);
-      })
-      .onUpdate((e) => {
-        translateX.value = e.translationX;
-        translateY.value = e.translationY;
-      })
-      .onEnd((e) => {
-        const colShift = Math.round(e.translationX / (ITEM_WIDTH + GAP));
-        const rowShift = Math.round(e.translationY / (ITEM_WIDTH * 1.25 + GAP));
-        const indexShift = colShift + (rowShift * 2);
-        const targetIndex = Math.max(0, Math.min(total - 1, index + indexShift));
-        if (targetIndex !== index) runOnJS(swapImages)(index, targetIndex);
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
-        isDragging.value = false;
-      });
-
-    return (
-      <GestureDetector gesture={dragGesture}>
-        <Animated.View layout={LinearTransition.springify()} style={[styles.imageCardContainer, animatedStyle]}>
-          <View style={styles.imageCard}>
-            <Image source={{ uri }} style={[styles.previewThumbnail]} contentFit="cover" />
-            <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImages(prev => prev.filter((_, i) => i !== index))}>
-              <IconSymbol name="plus" size={14} color="#FFF" style={{ transform: [{ rotate: '45deg' }] }} />
-            </TouchableOpacity>
-            <View style={styles.orderBadge}><ThemedText style={styles.orderBadgeText}>{index + 1}</ThemedText></View>
-          </View>
-        </Animated.View>
-      </GestureDetector>
-    );
-  };
-
   const showContextMenu = (event: any, item: PdfDoc) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const { pageX, pageY } = event.nativeEvent;
-    
-    const menuHeight = 160;
-    const adjustedY = pageY + menuHeight > SCREEN_HEIGHT - 100 ? pageY - menuHeight : pageY;
-    const menuWidth = 200;
-    const adjustedX = pageX + menuWidth > SCREEN_WIDTH - 20 ? pageX - menuWidth : pageX;
+    const adjustedX = Math.min(pageX, SCREEN_WIDTH - 200);
+    const adjustedY = Math.min(pageY, SCREEN_HEIGHT - 200);
 
     setContextMenu({
       visible: true,
@@ -351,39 +411,48 @@ export default function LibraryScreen() {
 
   const renderPdfItem: ListRenderItem<PdfDoc> = useCallback(({ item, index }) => {
     const isEditing = editingId === item.id;
+    const displayName = item.name.replace(/\.pdf$/i, '');
 
     return (
       <Animated.View entering={FadeInDown.delay(index * 50)} layout={LinearTransition}>
         <TouchableOpacity 
-          style={[styles.pdfAssetCard, { backgroundColor: colorScheme === 'dark' ? '#1E1E22' : '#FFF' }]}
+          style={[styles.pdfAssetCard, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF' }]}
           onPress={() => !isEditing && openPdf(item.uri)}
           activeOpacity={isEditing ? 1 : 0.8}
         >
           <View style={styles.pdfAssetThumbnail}>
-            <View style={styles.pdfIcon3D}>
-              <IconSymbol name="doc.text.fill" size={32} color="#FFF" />
+            {item.thumbnailUri ? (
+              <Image source={{ uri: item.thumbnailUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
+            ) : (
+              <View style={styles.pdfIcon3D}>
+                <IconSymbol name="doc.text.fill" size={24} color="#FFF" />
+              </View>
+            )}
+            
+            <View style={styles.pdfRibbon}>
+              <ThemedText style={styles.pdfRibbonText}>PDF</ThemedText>
             </View>
+
             <View style={styles.thumbnailGloss} />
           </View>
 
           <View style={styles.pdfAssetDetails}>
             {isEditing ? (
-              <Animated.View entering={FadeIn} exiting={FadeOut}>
-                <TextInput
-                  style={[styles.assetRenameInput, { color: themeColors.text }]}
-                  value={editingValue}
-                  onChangeText={setEditingValue}
-                  autoFocus
-                  selectTextOnFocus
-                  onSubmitEditing={() => saveRename(item)}
-                  onBlur={() => setEditingId(null)}
-                  returnKeyType="done"
-                />
-              </Animated.View>
+              <TextInput
+                style={[styles.assetRenameInput, { color: themeColors.text }]}
+                value={editingValue}
+                onChangeText={setEditingValue}
+                autoFocus
+                selectTextOnFocus
+                onSubmitEditing={() => Keyboard.dismiss()} 
+                onBlur={() => saveRename(item)} 
+                returnKeyType="done"
+              />
             ) : (
-              <Animated.View entering={FadeIn} exiting={FadeOut}>
-                <ThemedText style={styles.assetName} numberOfLines={1}>{item.name}</ThemedText>
-              </Animated.View>
+              <View style={styles.assetNameRow}>
+                <IconSymbol name="doc.text.fill" size={10} color={PDF_RED} style={{ marginRight: 6, opacity: 0.7 }} />
+                <ThemedText style={styles.assetName} numberOfLines={1}>{displayName}</ThemedText>
+              </View>
             )}
             
             <View style={styles.assetMetaRow}>
@@ -398,13 +467,13 @@ export default function LibraryScreen() {
               style={styles.assetMenuBtn} 
               onPress={(e) => showContextMenu(e, item)}
             >
-              <IconSymbol name="ellipsis" size={24} color={themeColors.icon} />
+              <IconSymbol name="ellipsis" size={18} color={themeColors.icon} />
             </TouchableOpacity>
           )}
         </TouchableOpacity>
       </Animated.View>
     );
-  }, [colorScheme, themeColors.icon, editingId, editingValue]);
+  }, [colorScheme, themeColors.icon, editingId, editingValue, themeColors.text]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -412,10 +481,10 @@ export default function LibraryScreen() {
         
         <View style={styles.hubContainer}>
           <TouchableOpacity 
-            style={[styles.hubButton, styles.primaryHub, { shadowColor: '#007AFF' }]} 
+            style={[styles.hubButton, styles.primaryHub]} 
             onPress={() => pickImages(false)}
           >
-            <View style={styles.hubIconCircle}><IconSymbol name="plus" size={26} color="#FFF" /></View>
+            <View style={styles.hubIconCircle}><IconSymbol name="plus" size={20} color="#FFF" /></View>
             <View>
               <ThemedText style={styles.hubLabel}>Select Images</ThemedText>
               <ThemedText style={styles.hubSubLabel}>Start new PDF</ThemedText>
@@ -423,10 +492,10 @@ export default function LibraryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.hubButton, styles.secondaryHub, { shadowColor: '#FF3B30' }]} 
+            style={[styles.hubButton, styles.secondaryHub]} 
             onPress={() => setShowFullLibrary(true)}
           >
-            <View style={styles.hubIconCircle}><IconSymbol name="photo.on.rectangle.angled" size={26} color="#FFF" /></View>
+            <View style={styles.hubIconCircle}><IconSymbol name="photo.on.rectangle.angled" size={20} color="#FFF" /></View>
             <View>
               <ThemedText style={styles.hubLabel}>View All PDFs</ThemedText>
               <ThemedText style={styles.hubSubLabel}>Full archive</ThemedText>
@@ -436,11 +505,10 @@ export default function LibraryScreen() {
 
         <View style={styles.sectionHeaderHome}>
           <View style={styles.titleRow}>
-             <View style={styles.accentBar} />
-             <ThemedText style={styles.sectionTitle}>Recent Documents</ThemedText>
+             <ThemedText style={styles.sectionTitle}>RECENT DOCUMENTS</ThemedText>
           </View>
-          <TouchableOpacity onPress={() => setShowFullLibrary(true)} activeOpacity={0.6}>
-            <ThemedText style={styles.seeMoreText}>See More {">>"}</ThemedText>
+          <TouchableOpacity onPress={() => setShowFullLibrary(true)}>
+            <ThemedText style={styles.seeMoreText}>SEE ALL</ThemedText>
           </TouchableOpacity>
         </View>
 
@@ -450,69 +518,53 @@ export default function LibraryScreen() {
           renderItem={renderPdfItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadLibrary(false)} tintColor="#007AFF" />}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadLibrary(false)} />}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <IconSymbol name="photo.on.rectangle.angled" size={64} color={themeColors.icon} style={{ opacity: 0.1 }} />
+              <IconSymbol name="photo.on.rectangle.angled" size={48} color={themeColors.icon} style={{ opacity: 0.1 }} />
               <ThemedText style={styles.emptyText}>Create your first PDF to see it here</ThemedText>
             </View>
           }
         />
 
-        <Modal
-          visible={contextMenu.visible}
-          transparent
-          animationType="none"
-        >
-          <Pressable 
-            style={styles.contextMenuOverlay} 
-            onPress={() => setContextMenu(prev => ({ ...prev, visible: false }))}
-          >
-            <Animated.View 
-              entering={ZoomIn.duration(150)}
-              style={[
-                styles.desktopMenu, 
-                { 
-                  top: contextMenu.y, 
-                  left: contextMenu.x,
-                  backgroundColor: colorScheme === 'dark' ? '#2A2D2F' : '#FFF' 
-                }
-              ]}
-            >
+        <Modal visible={contextMenu.visible} transparent animationType="none">
+          <Pressable style={styles.contextMenuOverlay} onPress={() => setContextMenu(prev => ({ ...prev, visible: false }))}>
+            <Animated.View entering={ZoomIn.duration(150)} style={[styles.desktopMenu, { top: contextMenu.y, left: contextMenu.x, backgroundColor: colorScheme === 'dark' ? '#2C2C2E' : '#FFFFFF' }]}>
               <TouchableOpacity style={styles.desktopMenuItem} onPress={() => {
                 if (!contextMenu.item) return;
                 setContextMenu(prev => ({ ...prev, visible: false }));
                 setEditingId(contextMenu.item.id);
                 setEditingValue(contextMenu.item.name.replace('.pdf', ''));
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }}>
-                <IconSymbol name="pencil" size={18} color={themeColors.text} />
+                <IconSymbol name="pencil" size={16} color={themeColors.text} />
                 <ThemedText style={styles.desktopMenuText}>Rename File</ThemedText>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.desktopMenuItem} onPress={() => {
                 if (!contextMenu.item) return;
                 setContextMenu(prev => ({ ...prev, visible: false }));
                 Sharing.shareAsync(contextMenu.item.uri);
               }}>
-                <IconSymbol name="square.and.arrow.up" size={18} color={themeColors.text} />
+                <IconSymbol name="square.and.arrow.up" size={16} color={themeColors.text} />
                 <ThemedText style={styles.desktopMenuText}>Share Document</ThemedText>
               </TouchableOpacity>
-
               <View style={styles.menuDivider} />
-
               <TouchableOpacity style={styles.desktopMenuItem} onPress={() => {
                 const itemToDelete = contextMenu.item;
                 setContextMenu(prev => ({ ...prev, visible: false }));
                 Alert.alert('Delete Permanently', `Delete ${itemToDelete?.name}?`, [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Delete', style: 'destructive', onPress: async () => { 
-                    if(itemToDelete) await FileSystem.deleteAsync(itemToDelete.uri); 
+                    if(itemToDelete) {
+                      await FileSystem.deleteAsync(itemToDelete.uri); 
+                      if (itemToDelete.thumbnailUri) {
+                        await FileSystem.deleteAsync(itemToDelete.thumbnailUri);
+                      }
+                    }
                     loadLibrary(); 
                   } }
                 ]);
               }}>
-                <IconSymbol name="trash.fill" size={18} color="#FF3B30" />
+                <IconSymbol name="trash.fill" size={16} color="#FF3B30" />
                 <ThemedText style={[styles.desktopMenuText, { color: '#FF3B30' }]}>Delete</ThemedText>
               </TouchableOpacity>
             </Animated.View>
@@ -521,77 +573,156 @@ export default function LibraryScreen() {
 
         <Modal visible={showFullLibrary} animationType="slide" presentationStyle="fullScreen">
           <ThemedView style={styles.container}>
-            <View style={[styles.modalHeader, { paddingTop: insets.top + 10 }]}>
-              <TouchableOpacity onPress={() => setShowFullLibrary(false)}><IconSymbol name="chevron.right" size={28} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} /></TouchableOpacity>
-              <ThemedText type="subtitle">Document Archive</ThemedText>
-              <View style={{ width: 28 }} />
-            </View>
+            {isSearchActive && (
+              <View style={StyleSheet.absoluteFill}>
+                <ThemedView style={styles.container}>
+                  <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
+                    <TouchableOpacity 
+                      style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
+                      onPress={() => { setIsSearchActive(false); setLibSearchQuery(''); }}
+                    >
+                      <IconSymbol name="chevron.right" size={22} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} />
+                    </TouchableOpacity>
+                    <ThemedText style={styles.archiveTitle}>SEARCH PDFS</ThemedText>
+                    <View style={{ width: 44 }} />
+                  </View>
 
-            <View style={[styles.searchContainer, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]}>
-              <IconSymbol name="info.circle.fill" size={20} color={themeColors.icon} />
-              <TextInput
-                style={[styles.searchInput, { color: themeColors.text }]}
-                placeholder="Search archive..."
-                placeholderTextColor={themeColors.icon}
-                value={libSearchQuery}
-                onChangeText={setLibSearchQuery}
-              />
-            </View>
+                  <View style={styles.premiumSearchContainer}>
+                    <View style={[styles.searchInner, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF', borderColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,122,255,0.1)' }]}>
+                      <IconSymbol name="magnifyingglass" size={20} color={colorScheme === 'dark' ? '#FFFFFF' : '#007AFF'} style={{ opacity: 0.8 }} />
+                      <TextInput 
+                        style={[styles.searchInput, { color: PDF_RED }]} 
+                        placeholder="Search file name..." 
+                        placeholderTextColor={themeColors.icon} 
+                        value={libSearchQuery} 
+                        onChangeText={setLibSearchQuery} 
+                        autoFocus
+                      />
+                      {libSearchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setLibSearchQuery('')}>
+                          <View style={styles.clearSearchIcon}>
+                            <IconSymbol name="plus" size={14} color="#FFF" style={{ transform: [{ rotate: '45deg' }] }} />
+                          </View>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
 
-            <FlatList<PdfDoc>
-              data={libSearchQuery ? pdfs.filter(p => p.name.toLowerCase().includes(libSearchQuery.toLowerCase())) : pdfs}
-              keyExtractor={(item) => item.id}
-              renderItem={renderPdfItem}
-              contentContainerStyle={styles.listContent}
-            />
+                  <FlatList<PdfDoc>
+                    data={pdfs.filter(p => p.name.toLowerCase().includes(libSearchQuery.toLowerCase()))}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderPdfItem}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                  />
+                </ThemedView>
+              </View>
+            )}
+
+            {!isSearchActive && (
+              <>
+                <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
+                  <TouchableOpacity 
+                    style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
+                    onPress={() => setShowFullLibrary(false)}
+                  >
+                    <IconSymbol name="chevron.right" size={22} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} />
+                  </TouchableOpacity>
+                  <ThemedText style={styles.archiveTitle}>DOCUMENT ARCHIVE</ThemedText>
+                  <TouchableOpacity 
+                    style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
+                    onPress={() => setIsSearchActive(true)}
+                  >
+                    <IconSymbol name="magnifyingglass" size={20} color={themeColors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                <FlatList<PdfDoc>
+                  data={pdfs}
+                  keyExtractor={(item) => item.id}
+                  renderItem={renderPdfItem}
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={false}
+                />
+              </>
+            )}
           </ThemedView>
         </Modal>
 
-        <Modal visible={showDraftModal} animationType="slide" presentationStyle="pageSheet">
+        {/* Premium Craft PDF Modal */}
+        <Modal visible={showDraftModal} animationType="slide" presentationStyle="fullScreen">
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <ThemedView style={styles.container}>
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setShowDraftModal(false)}><ThemedText type="link">Cancel</ThemedText></TouchableOpacity>
-                <ThemedText type="subtitle">Craft PDF</ThemedText>
-                <TouchableOpacity onPress={() => pickImages(true)}><IconSymbol name="plus" size={24} color="#007AFF" /></TouchableOpacity>
+            <ThemedView style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0D0D0E' : '#F8F9FB' }]}>
+              {/* Perfectly Aligned Premium Header - Matches Document Archive Style exactly */}
+              <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
+                <TouchableOpacity 
+                  style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#FFFFFF' }]} 
+                  onPress={() => {
+                    setShowDraftModal(false);
+                    setIsProcessing(false); // Safety reset
+                  }}
+                >
+                  <ThemedText style={styles.discardText}>Discard</ThemedText>
+                </TouchableOpacity>
+                
+                <ThemedText style={styles.draftHeadingText}>PDF DRAFTING</ThemedText>
+                
+                <TouchableOpacity 
+                  style={[styles.archiveBackButton, { backgroundColor: ACCENT_BLUE }]} 
+                  onPress={() => pickImages(true)}
+                >
+                   <IconSymbol name="plus" size={20} color="#FFF" />
+                </TouchableOpacity>
               </View>
               
-              <ScrollView contentContainerStyle={styles.draftContent} showsVerticalScrollIndicator={false}>
-                <ThemedText style={styles.label}>DOCUMENT TITLE</ThemedText>
-                <TextInput style={[styles.input, { backgroundColor: colorScheme === 'dark' ? '#1E1E22' : '#F5F5F7', color: themeColors.text, paddingHorizontal: 20 }]} value={pdfName} onChangeText={setPdfName} />
+              <ScrollView 
+                contentContainerStyle={styles.draftContent} 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.premiumInputWrapper}>
+                  <ThemedText style={[styles.vibrantLabel, { color: ACCENT_BLUE }]}>DOCUMENT TITLE</ThemedText>
+                  <TextInput 
+                    style={[styles.draftInput, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF', color: themeColors.text }]} 
+                    value={pdfName} 
+                    onChangeText={setPdfName} 
+                    placeholder="Masterpiece name..."
+                    placeholderTextColor="rgba(0,0,0,0.2)"
+                  />
+                </View>
                 
-                <ThemedText style={styles.label}>SHEET COLOR</ThemedText>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll}>
-                  {SHEET_COLORS.map((c, idx) => (
-                    <TouchableOpacity key={idx} onPress={() => setSelectedColor(c)} style={[styles.colorChip, { backgroundColor: c.hex }, selectedColor.hex === c.hex && { borderColor: '#007AFF' }]}>
-                      <ThemedText style={{ color: c.text, fontSize: 12, fontWeight: '700' }}>{c.label}</ThemedText>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <ThemedText style={styles.label}>IMAGE OPTIMIZATION</ThemedText>
-                <View style={styles.filterRow}>
-                  {IMAGE_FILTERS.map((f) => (
-                    <TouchableOpacity key={f.id} onPress={() => setSelectedFilter(f.id)} style={[styles.filterBtn, selectedFilter === f.id && { backgroundColor: '#007AFF' }]}>
-                      <IconSymbol name={f.icon as any} size={18} color={selectedFilter === f.id ? '#FFF' : themeColors.icon} />
-                      <ThemedText style={[styles.filterLabel, selectedFilter === f.id && { color: '#FFF' }]}>{f.label}</ThemedText>
-                    </TouchableOpacity>
-                  ))}
+                <View style={styles.sectionHeaderDraft}>
+                  <ThemedText style={[styles.vibrantLabel, { color: PDF_RED }]}>ORGANIZE PAGES ({selectedImages.length})</ThemedText>
+                  <ThemedText style={styles.orderInstruction}>Touch and hold to rearrange your story</ThemedText>
                 </View>
 
-                <View style={styles.sectionHeader}>
-                  <ThemedText style={styles.label}>PAGES ({selectedImages.length})</ThemedText>
-                </View>
                 <View style={styles.imageGrid}>
-                  {selectedImages.map((uri, index) => <DraggableItem key={`${uri}-${index}`} uri={uri} index={index} total={selectedImages.length} />)}
+                  {selectedImages.map((uri, index) => (
+                    <DraggableItem 
+                      key={uri} 
+                      uri={uri} 
+                      index={index} 
+                      total={selectedImages.length} 
+                      onSwap={swapImages}
+                      onRemove={removeImage}
+                    />
+                  ))}
                 </View>
               </ScrollView>
 
-              <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+              <View style={[styles.footerDraft, { paddingBottom: Math.max(insets.bottom, 24) }]}>
                 {isProcessing ? (
-                  <View style={styles.center}><ActivityIndicator color="#007AFF" /><ThemedText style={styles.statusText}>{STATUS_MESSAGES[statusIdx]}</ThemedText></View>
+                  <Animated.View style={[styles.processingContainer, { transform: [{ scale: pulse }] }]}>
+                    <ActivityIndicator color={PDF_RED} size="large" />
+                    <ThemedText style={styles.statusTextPremium}>{STATUS_MESSAGES[statusIdx]}</ThemedText>
+                  </Animated.View>
                 ) : (
-                  <TouchableOpacity style={[styles.convertButton, { backgroundColor: '#1A1A1A' }]} onPress={generatePdf}>
+                  <TouchableOpacity 
+                    style={styles.convertButtonPremium} 
+                    onPress={generatePdf}
+                    activeOpacity={0.8}
+                  >
+                    <IconSymbol name="checkmark.circle.fill" size={22} color="#FFF" style={{ marginRight: 10 }} />
                     <ThemedText style={styles.convertButtonText}>Generate PDF</ThemedText>
                   </TouchableOpacity>
                 )}
@@ -607,134 +738,96 @@ export default function LibraryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { justifyContent: 'center', alignItems: 'center' },
-  hubContainer: { flexDirection: 'row', gap: 14, padding: GRID_PADDING, height: 180 },
-  hubButton: { flex: 1, borderRadius: 28, padding: 20, justifyContent: 'space-between', elevation: 12, shadowOpacity: 0.25, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
+  hubContainer: { flexDirection: 'row', gap: 12, padding: GRID_PADDING, height: 160 },
+  hubButton: { flex: 1, borderRadius: 24, padding: 16, justifyContent: 'space-between', elevation: 8, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   primaryHub: { backgroundColor: '#007AFF' },
-  secondaryHub: { backgroundColor: '#FF3B30' },
-  hubIconCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  hubLabel: { color: '#FFF', fontWeight: '900', fontSize: 16, letterSpacing: -0.3 },
-  hubSubLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '500', marginTop: 2 },
-  sectionHeaderHome: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: GRID_PADDING, marginTop: 24, marginBottom: 12 },
+  secondaryHub: { backgroundColor: PDF_RED },
+  hubIconCircle: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  hubLabel: { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  hubSubLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '600', marginTop: 1 },
+  sectionHeaderHome: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: GRID_PADDING, marginTop: 20, marginBottom: 10 },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
-  accentBar: { width: 4, height: 20, backgroundColor: '#007AFF', borderRadius: 2, marginRight: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: '900', opacity: 0.9, letterSpacing: -0.5 },
-  seeMoreText: { fontSize: 13, fontWeight: '700', color: '#007AFF', opacity: 0.8 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', margin: GRID_PADDING, paddingHorizontal: 16, height: 56, borderRadius: 16 },
-  searchInput: { flex: 1, marginLeft: 12, fontSize: 16 },
-  listContent: { padding: GRID_PADDING, paddingBottom: 100 },
-  
+  sectionTitle: { fontSize: 12, fontWeight: '900', opacity: 0.4, letterSpacing: 1.2 },
+  seeMoreText: { fontSize: 11, fontWeight: '900', color: '#007AFF', opacity: 0.8 },
+  listContent: { padding: GRID_PADDING, paddingBottom: 120 },
   pdfAssetCard: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     padding: 12, 
-    borderRadius: 24, 
-    marginBottom: 16, 
-    borderWidth: 1, 
-    borderColor: 'rgba(0,0,0,0.06)', 
-    elevation: 4, 
-    shadowColor: '#000', 
+    borderRadius: 22, 
+    marginBottom: 12, 
+    elevation: 3, 
     shadowOpacity: 0.08, 
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }
+    shadowRadius: 6, 
+    shadowOffset: { width: 0, height: 3 } 
   },
   pdfAssetThumbnail: { 
     width: 64, 
-    height: 72, 
-    borderRadius: 16, 
-    backgroundColor: '#FF4136', 
+    height: 64, 
+    borderRadius: 14, 
+    backgroundColor: PDF_RED, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 16, 
     overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)'
   },
-  pdfIcon3D: {
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  thumbnailGloss: {
+  pdfRibbon: {
     position: 'absolute',
     top: 0,
-    left: 0,
     right: 0,
-    height: '40%',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderBottomRightRadius: 64,
+    backgroundColor: PDF_RED,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderBottomLeftRadius: 6,
+    zIndex: 10
   },
+  pdfRibbonText: { color: '#FFF', fontSize: 7, fontWeight: '900', letterSpacing: 0.5 },
+  pdfIcon3D: { shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 3, shadowOffset: { width: 0, height: 2 } },
+  thumbnailGloss: { position: 'absolute', top: 0, left: 0, right: 0, height: '35%', backgroundColor: 'rgba(255,255,255,0.18)' },
   pdfAssetDetails: { flex: 1 },
-  assetName: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
-  assetRenameInput: { 
-    fontSize: 16, 
-    fontWeight: '800', 
-    letterSpacing: -0.3, 
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,122,255,0.1)',
-    borderWidth: 1,
-    borderColor: '#007AFF',
-  },
-  assetMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  assetMetaText: { fontSize: 12, opacity: 0.4, fontWeight: '600' },
-  assetMetaTextMono: { fontSize: 12, opacity: 0.4, fontWeight: '700', fontFamily: 'monospace' },
-  metaDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(0,0,0,0.2)', marginHorizontal: 8 },
-  assetMenuBtn: { padding: 12 },
-
-  contextMenuOverlay: { flex: 1, backgroundColor: 'transparent' },
-  desktopMenu: {
-    position: 'absolute',
-    width: 200,
-    borderRadius: 14,
-    padding: 6,
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 15,
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.1)',
-  },
-  desktopMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  desktopMenuText: {
-    marginLeft: 12,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    marginVertical: 4,
-    marginHorizontal: 8,
-  },
-
-  emptyState: { alignItems: 'center', marginTop: 60, opacity: 0.5, paddingHorizontal: 40 },
-  emptyText: { marginTop: 16, textAlign: 'center', fontSize: 15, fontWeight: '500' },
-  input: { height: 64, borderRadius: 20, fontSize: 16, marginBottom: 14 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 24, alignItems: 'center' },
+  assetNameRow: { flexDirection: 'row', alignItems: 'center' },
+  assetName: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2, opacity: 0.85 },
+  assetRenameInput: { fontSize: 13, fontWeight: '800', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8, backgroundColor: 'rgba(229,57,53,0.05)', borderWidth: 1.5, borderColor: PDF_RED },
+  assetMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  assetMetaText: { fontSize: 10, fontWeight: '700', color: '#007AFF', opacity: 0.5 },
+  assetMetaTextMono: { fontSize: 10, fontWeight: '900', color: PDF_RED, opacity: 0.7, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  metaDot: { width: 2.5, height: 2.5, borderRadius: 1.25, backgroundColor: 'rgba(0,0,0,0.08)', marginHorizontal: 6 },
+  assetMenuBtn: { padding: 8 },
+  contextMenuOverlay: { flex: 1 },
+  desktopMenu: { position: 'absolute', width: 180, borderRadius: 12, padding: 4, elevation: 15, shadowOpacity: 0.15, shadowRadius: 10 },
+  desktopMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8 },
+  desktopMenuText: { marginLeft: 10, fontSize: 13, fontWeight: '600' },
+  menuDivider: { height: 1, backgroundColor: 'rgba(0,0,0,0.05)', marginVertical: 4 },
+  emptyState: { alignItems: 'center', marginTop: 50, opacity: 0.3 },
+  emptyText: { marginTop: 12, textAlign: 'center', fontSize: 14, fontWeight: '500' },
+  archiveHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15 },
+  archiveBackButton: { width: 72, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', elevation: 2, shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+  archiveTitle: { fontSize: 14, fontWeight: '900', opacity: 0.9, letterSpacing: 1 },
+  discardText: { color: '#FF3B30', fontSize: 14, fontWeight: '900' },
+  draftHeadingText: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: 1.2 },
   draftContent: { padding: GRID_PADDING, paddingBottom: 150 },
-  label: { fontSize: 11, fontWeight: '900', marginBottom: 14, opacity: 0.4, letterSpacing: 1.5 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 16 },
+  premiumInputWrapper: { marginBottom: 24 },
+  vibrantLabel: { fontSize: 10, fontWeight: '900', marginBottom: 10, letterSpacing: 1.5, opacity: 0.9 },
+  draftInput: { height: 64, borderRadius: 18, fontSize: 18, paddingHorizontal: 20, fontWeight: '800', elevation: 4, shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, borderWidth: 1.5, borderColor: 'rgba(0,122,255,0.1)' },
+  sectionHeaderDraft: { marginTop: 8, marginBottom: 16 },
+  orderInstruction: { fontSize: 12, opacity: 0.4, fontWeight: '600', marginTop: -6, fontStyle: 'italic' },
   imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
   imageCardContainer: { width: ITEM_WIDTH },
-  imageCard: { aspectRatio: 0.75, borderRadius: 24, overflow: 'hidden', backgroundColor: '#F0F0F0', elevation: 5 },
+  imageCard: { aspectRatio: 1, borderRadius: 20, overflow: 'hidden', backgroundColor: '#FFF', elevation: 6, shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   previewThumbnail: { width: '100%', height: '100%' },
-  removeImageBtn: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.65)', width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  orderBadge: { position: 'absolute', top: 10, left: 10, backgroundColor: '#FF3B30', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12 },
-  orderBadgeText: { color: '#FFF', fontSize: 13, fontWeight: '900' },
-  hScroll: { marginBottom: 24 },
-  colorChip: { paddingHorizontal: 22, paddingVertical: 14, borderRadius: 18, marginRight: 12, borderWidth: 2, borderColor: 'transparent' },
-  filterRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  filterBtn: { flex: 1, height: 56, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.04)' },
-  filterLabel: { marginLeft: 10, fontSize: 13, fontWeight: '700' },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 24, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
-  convertButton: { height: 68, borderRadius: 24, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-  convertButtonText: { color: '#FFF', fontSize: 19, fontWeight: '800' },
-  statusText: { marginTop: 18, fontSize: 14, opacity: 0.7, fontWeight: '700' },
+  removeImageBtn: { position: 'absolute', top: 8, right: 8, zIndex: 20 },
+  removeIconCircle: { backgroundColor: 'rgba(255,59,48,0.9)', width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  orderRibbon: { position: 'absolute', bottom: 0, left: 0, backgroundColor: PDF_RED, paddingHorizontal: 10, paddingVertical: 5, borderTopRightRadius: 12, zIndex: 10 },
+  orderRibbonText: { color: '#FFF', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  footerDraft: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 24, backgroundColor: 'rgba(255,255,255,0.96)', borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
+  convertButtonPremium: { height: 68, borderRadius: 24, backgroundColor: PDF_RED, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 12, shadowColor: PDF_RED, shadowOpacity: 0.3, shadowRadius: 15 },
+  convertButtonText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
+  processingContainer: { alignItems: 'center', justifyContent: 'center' },
+  statusTextPremium: { marginTop: 12, fontSize: 14, fontWeight: '800', color: PDF_RED, opacity: 0.9 },
+  premiumSearchContainer: { paddingHorizontal: GRID_PADDING, paddingBottom: 20 },
+  searchInner: { flexDirection: 'row', alignItems: 'center', height: 58, borderRadius: 18, paddingHorizontal: 18, elevation: 4, borderWidth: 1.5 },
+  searchInput: { flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600' },
+  clearSearchIcon: { backgroundColor: '#8E8E93', width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
 });
