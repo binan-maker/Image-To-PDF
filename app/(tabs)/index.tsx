@@ -1,17 +1,19 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import React, { memo, useCallback, useEffect, useState } from 'react';
-import type { ListRenderItem } from 'react-native';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
   Keyboard,
+  ListRenderItem,
   Modal,
   Platform,
   Pressable,
@@ -28,7 +30,9 @@ import {
   GestureHandlerRootView
 } from 'react-native-gesture-handler';
 import Animated, {
+  FadeIn,
   FadeInDown,
+  FadeOut,
   LinearTransition,
   runOnJS,
   useAnimatedStyle,
@@ -36,7 +40,8 @@ import Animated, {
   withRepeat,
   withSequence,
   withSpring,
-  ZoomIn
+  withTiming,
+  ZoomIn,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -54,6 +59,7 @@ interface PdfDoc {
   uri: string;
   thumbnailUri?: string;
   timestamp: number;
+  isGhost?: boolean; 
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -61,7 +67,6 @@ const GRID_PADDING = 20;
 const GAP = 12;
 const ITEM_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GAP) / 2;
 
-// Signature Brand Colors
 const PDF_RED = '#E53935';
 const ACCENT_BLUE = '#007AFF';
 
@@ -72,6 +77,37 @@ const STATUS_MESSAGES = [
   "Finalizing document layers...",
   "Baking your PDF file...",
 ];
+
+const SelectionGuard = memo(({ message }: { message?: string }) => {
+  return (
+    <Animated.View 
+      entering={FadeIn.duration(100)} 
+      exiting={FadeOut.duration(200)} 
+      style={[styles.selectionGuard, StyleSheet.absoluteFill]}
+    >
+      <View style={styles.guardContent}>
+        <ActivityIndicator color={PDF_RED} size="large" />
+        <ThemedText style={styles.guardTitle}>STITCHING YOUR STORY</ThemedText>
+        <ThemedText style={styles.guardSubtitle}>{message || "Preparing your boutique workspace..."}</ThemedText>
+      </View>
+    </Animated.View>
+  );
+});
+
+const SkeletonItem = () => {
+  const opacity = useSharedValue(0.3);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(0.6, { duration: 1000 }), -1, true);
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.imageCard, styles.skeletonBox, animatedStyle]} />
+  );
+};
 
 const DraggableItem = memo(({ 
   uri, 
@@ -122,7 +158,7 @@ const DraggableItem = memo(({
 
   return (
     <GestureDetector gesture={dragGesture}>
-      <Animated.View layout={LinearTransition.springify()} style={[styles.imageCardContainer, animatedStyle]}>
+      <Animated.View entering={FadeIn.duration(300)} layout={LinearTransition.springify()} style={[styles.imageCardContainer, animatedStyle]}>
         <View style={styles.imageCard}>
           <Image source={{ uri }} style={[styles.previewThumbnail]} contentFit="cover" cachePolicy="memory-disk" />
           
@@ -156,12 +192,15 @@ export default function LibraryScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPreparingDraft, setIsPreparingDraft] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showFullLibrary, setShowFullLibrary] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
   
   const [pdfName, setPdfName] = useState('');
   const [statusIdx, setStatusIdx] = useState(0);
+  const [progressMsg, setProgressMsg] = useState('');
   const [libSearchQuery, setLibSearchQuery] = useState('');
 
   const [contextMenu, setContextMenu] = useState<{
@@ -175,10 +214,16 @@ export default function LibraryScreen() {
   const [editingValue, setEditingValue] = useState('');
 
   const pulse = useSharedValue(1);
+
+  // FIX: Created an animated style to avoid reading shared value during render
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
+
   useEffect(() => {
     if (isProcessing) {
       pulse.value = withRepeat(
-        withSequence(withSpring(1.05), withSpring(1)),
+        withSequence(withTiming(1.05, { duration: 800 }), withTiming(1, { duration: 800 })),
         -1,
         false
       );
@@ -189,13 +234,13 @@ export default function LibraryScreen() {
 
   useEffect(() => {
     let interval: any;
-    if (isProcessing) {
+    if (isProcessing && !progressMsg) {
       interval = setInterval(() => {
         setStatusIdx((prev) => (prev + 1) % STATUS_MESSAGES.length);
       }, 1500);
     }
     return () => clearInterval(interval);
-  }, [isProcessing]);
+  }, [isProcessing, progressMsg]);
 
   const loadLibrary = async (showSpinner = true) => {
     if (showSpinner) setIsLoadingLibrary(true);
@@ -267,23 +312,47 @@ export default function LibraryScreen() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    });
+    setIsSelecting(true);
 
-    if (!result.canceled) {
-      const uris = result.assets.map(asset => asset.uri);
-      if (isAppending) {
-        setSelectedImages(prev => [...prev, ...uris]);
-      } else {
-        setSelectedImages(uris);
-        // Requirement: PDF_random numbers (uniqueness guaranteed)
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.7,
+      });
+
+      if (result.canceled) {
+        setIsSelecting(false);
+        return;
+      }
+
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+
+      if (!isAppending) {
         const randomNum = Math.floor(100000 + Math.random() * 900000);
         setPdfName(`PDF_${randomNum}`);
-        setShowDraftModal(true);
       }
+
+      const uris = result.assets.map(asset => asset.uri);
+      
+      setShowDraftModal(true);
+      setIsPreparingDraft(true);
+
+      setTimeout(() => {
+        if (isAppending) {
+          setSelectedImages(prev => [...prev, ...uris]);
+        } else {
+          setSelectedImages(uris);
+        }
+        setIsPreparingDraft(false);
+        setIsSelecting(false);
+      }, 800);
+    } catch (e) {
+      setIsSelecting(false);
+      setIsPreparingDraft(false);
+      Alert.alert("Error", "Could not load images.");
     }
   };
 
@@ -294,21 +363,45 @@ export default function LibraryScreen() {
     }
     
     setIsProcessing(true);
+    const tempResizedUris: string[] = [];
     try {
-      const base64Images: string[] = [];
-      for (const uri of selectedImages) {
-        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-        base64Images.push(`data:image/jpeg;base64,${base64}`);
+      let htmlPages = "";
+      const total = selectedImages.length;
+      
+      // OPTIMIZATION: Sequential processing with lower width to fit bridge payload limits
+      for (let i = 0; i < total; i++) {
+        const uri = selectedImages[i];
+        setProgressMsg(`Optimizing page ${i + 1} of ${total}...`);
+        
+        // 750px width is perfect for mobile sharing and keeps the payload under the native bridge limit even for 100+ pages
+        const manipResult = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 750 } }], 
+          { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        
+        htmlPages += `<div class="page"><img src="data:image/jpeg;base64,${manipResult.base64}" /></div>`;
+        
+        if (i === 0) {
+          tempResizedUris.push(manipResult.uri);
+        }
+
+        // Give JS thread room to breathe and process UI updates/GC
+        if (i % 15 === 0 && Platform.OS !== 'web') {
+           await new Promise(r => setTimeout(r, 60));
+        }
       }
 
+      setProgressMsg('Baking boutique PDF...');
+      
       const htmlContent = `
         <!DOCTYPE html><html><head><style>
           @page { size: A4; margin: 0; }
-          body { margin: 0; background-color: #FFFFFF; font-family: sans-serif; }
+          body { margin: 0; padding: 0; background-color: #FFFFFF; font-family: sans-serif; }
           .page { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; page-break-after: always; overflow: hidden; }
-          img { max-width: 90%; max-height: 90%; object-fit: contain; }
+          img { max-width: 96%; max-height: 96%; object-fit: contain; }
         </style></head><body>
-          ${base64Images.map(b64 => `<div class="page"><img src="${b64}" /></div>`).join('')}
+          ${htmlPages}
         </body></html>
       `;
 
@@ -316,22 +409,25 @@ export default function LibraryScreen() {
       const docDir = FileSystem.documentDirectory;
       if (!docDir) throw new Error("Storage unavailable");
 
-      const finalName = `${pdfName.trim() || 'Document'}.pdf`.replace(/[^a-z0-9._-]/gi, '_');
-      const destination = `${docDir}${finalName}`;
+      const finalBaseName = pdfName.trim() || `Document_${Math.floor(Date.now()/1000)}`;
+      const finalFileName = `${finalBaseName}.pdf`.replace(/[^a-z0-9._-]/gi, '_');
+      const destination = `${docDir}${finalFileName}`;
       const thumbDestination = destination.replace('.pdf', '.jpg');
       
       await FileSystem.copyAsync({ from: tempUri, to: destination });
-      if (selectedImages.length > 0) {
-        await FileSystem.copyAsync({ from: selectedImages[0], to: thumbDestination });
+      if (tempResizedUris.length > 0) {
+        await FileSystem.copyAsync({ from: tempResizedUris[0], to: thumbDestination });
       }
       
       await loadLibrary(false);
       setShowDraftModal(false);
       setSelectedImages([]);
     } catch (error: any) {
-      Alert.alert('PDF Generation Failed', error.message);
+      console.error(error);
+      Alert.alert('Memory Exhausted', 'For documents with 100+ images, please ensure your phone has enough free RAM. Try closing background apps or generating in two separate PDFs.');
     } finally {
       setIsProcessing(false);
+      setProgressMsg('');
     }
   };
 
@@ -409,7 +505,37 @@ export default function LibraryScreen() {
     });
   };
 
+  const boutiqueRecentData = useMemo(() => {
+    const sliced = pdfs.slice(0, 5);
+    if (pdfs.length > 5) {
+      return [...sliced, { id: 'ghost_history_card', isGhost: true } as PdfDoc];
+    }
+    return sliced;
+  }, [pdfs]);
+
   const renderPdfItem: ListRenderItem<PdfDoc> = useCallback(({ item, index }) => {
+    if (item.isGhost) {
+      const remainingCount = pdfs.length - 5;
+      return (
+        <Animated.View entering={FadeInDown.delay(index * 50)} layout={LinearTransition}>
+          <TouchableOpacity 
+            style={[styles.ghostHistoryCard, { backgroundColor: colorScheme === 'dark' ? 'rgba(0,122,255,0.05)' : 'rgba(255,255,255,0.5)' }]}
+            onPress={() => setShowFullLibrary(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.ghostIconWrapper}>
+              <IconSymbol name="photo.on.rectangle.angled" size={24} color={ACCENT_BLUE} />
+            </View>
+            <View style={styles.pdfAssetDetails}>
+              <ThemedText style={styles.ghostTitle}>Explore Full Archive</ThemedText>
+              <ThemedText style={styles.ghostSubtitle}>+{remainingCount} documents waiting for you</ThemedText>
+            </View>
+            <IconSymbol name="chevron.right" size={16} color={ACCENT_BLUE} style={{ opacity: 0.5 }} />
+          </TouchableOpacity>
+        </Animated.View>
+      );
+    }
+
     const isEditing = editingId === item.id;
     const displayName = item.name.replace(/\.pdf$/i, '');
 
@@ -473,12 +599,16 @@ export default function LibraryScreen() {
         </TouchableOpacity>
       </Animated.View>
     );
-  }, [colorScheme, themeColors.icon, editingId, editingValue, themeColors.text]);
+  }, [colorScheme, themeColors.icon, editingId, editingValue, themeColors.text, pdfs.length]);
+
+  // FIX: Hooks defined above, now safe to return SelectionGuard conditionally if needed
+  if (isSelecting) {
+    return <SelectionGuard message={progressMsg} />;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemedView style={styles.container}>
-        
         <View style={styles.hubContainer}>
           <TouchableOpacity 
             style={[styles.hubButton, styles.primaryHub]} 
@@ -506,6 +636,12 @@ export default function LibraryScreen() {
         <View style={styles.sectionHeaderHome}>
           <View style={styles.titleRow}>
              <ThemedText style={styles.sectionTitle}>RECENT DOCUMENTS</ThemedText>
+             {pdfs.length > 0 && (
+               <>
+                 <View style={styles.statSeparator} />
+                 <ThemedText style={styles.statCount}>{pdfs.length} TOTAL</ThemedText>
+               </>
+             )}
           </View>
           <TouchableOpacity onPress={() => setShowFullLibrary(true)}>
             <ThemedText style={styles.seeMoreText}>SEE ALL</ThemedText>
@@ -513,7 +649,7 @@ export default function LibraryScreen() {
         </View>
 
         <FlatList<PdfDoc>
-          data={pdfs.slice(0, 10)}
+          data={boutiqueRecentData}
           keyExtractor={(item) => item.id}
           renderItem={renderPdfItem}
           contentContainerStyle={styles.listContent}
@@ -649,17 +785,16 @@ export default function LibraryScreen() {
           </ThemedView>
         </Modal>
 
-        {/* Premium Craft PDF Modal */}
         <Modal visible={showDraftModal} animationType="slide" presentationStyle="fullScreen">
           <GestureHandlerRootView style={{ flex: 1 }}>
             <ThemedView style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0D0D0E' : '#F8F9FB' }]}>
-              {/* Perfectly Aligned Premium Header - Matches Document Archive Style exactly */}
               <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
                 <TouchableOpacity 
                   style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#FFFFFF' }]} 
                   onPress={() => {
                     setShowDraftModal(false);
-                    setIsProcessing(false); // Safety reset
+                    setIsProcessing(false);
+                    setIsPreparingDraft(false);
                   }}
                 >
                   <ThemedText style={styles.discardText}>Discard</ThemedText>
@@ -692,34 +827,48 @@ export default function LibraryScreen() {
                 </View>
                 
                 <View style={styles.sectionHeaderDraft}>
-                  <ThemedText style={[styles.vibrantLabel, { color: PDF_RED }]}>ORGANIZE PAGES ({selectedImages.length})</ThemedText>
-                  <ThemedText style={styles.orderInstruction}>Touch and hold to rearrange your story</ThemedText>
+                  <ThemedText style={[styles.vibrantLabel, { color: PDF_RED }]}>
+                    {isPreparingDraft ? 'STITCHING PAGES...' : `ORGANIZE PAGES (${selectedImages.length})`}
+                  </ThemedText>
+                  <ThemedText style={styles.orderInstruction}>
+                    {isPreparingDraft ? 'Curating your boutique workspace...' : 'Touch and hold to rearrange your story'}
+                  </ThemedText>
                 </View>
 
                 <View style={styles.imageGrid}>
-                  {selectedImages.map((uri, index) => (
-                    <DraggableItem 
-                      key={uri} 
-                      uri={uri} 
-                      index={index} 
-                      total={selectedImages.length} 
-                      onSwap={swapImages}
-                      onRemove={removeImage}
-                    />
-                  ))}
+                  {isPreparingDraft ? (
+                    <>
+                      <SkeletonItem />
+                      <SkeletonItem />
+                      <SkeletonItem />
+                      <SkeletonItem />
+                    </>
+                  ) : (
+                    selectedImages.map((uri, index) => (
+                      <DraggableItem 
+                        key={uri} 
+                        uri={uri} 
+                        index={index} 
+                        total={selectedImages.length} 
+                        onSwap={swapImages}
+                        onRemove={removeImage}
+                      />
+                    ))
+                  )}
                 </View>
               </ScrollView>
 
               <View style={[styles.footerDraft, { paddingBottom: Math.max(insets.bottom, 24) }]}>
                 {isProcessing ? (
-                  <Animated.View style={[styles.processingContainer, { transform: [{ scale: pulse }] }]}>
+                  <Animated.View style={[styles.processingContainer, pulseStyle]}>
                     <ActivityIndicator color={PDF_RED} size="large" />
-                    <ThemedText style={styles.statusTextPremium}>{STATUS_MESSAGES[statusIdx]}</ThemedText>
+                    <ThemedText style={styles.statusTextPremium}>{progressMsg || STATUS_MESSAGES[statusIdx]}</ThemedText>
                   </Animated.View>
                 ) : (
                   <TouchableOpacity 
-                    style={styles.convertButtonPremium} 
+                    style={[styles.convertButtonPremium, (isPreparingDraft || isSelecting) && { opacity: 0.5 }]} 
                     onPress={generatePdf}
+                    disabled={isPreparingDraft || isSelecting}
                     activeOpacity={0.8}
                   >
                     <IconSymbol name="checkmark.circle.fill" size={22} color="#FFF" style={{ marginRight: 10 }} />
@@ -738,6 +887,15 @@ export default function LibraryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  selectionGuard: { 
+    zIndex: 99999, 
+    backgroundColor: '#F8F9FB', 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  guardContent: { alignItems: 'center' },
+  guardTitle: { marginTop: 24, fontSize: 16, fontWeight: '900', letterSpacing: 2, color: PDF_RED },
+  guardSubtitle: { marginTop: 8, fontSize: 13, opacity: 0.5, fontWeight: '600' },
   hubContainer: { flexDirection: 'row', gap: 12, padding: GRID_PADDING, height: 160 },
   hubButton: { flex: 1, borderRadius: 24, padding: 16, justifyContent: 'space-between', elevation: 8, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   primaryHub: { backgroundColor: '#007AFF' },
@@ -747,7 +905,9 @@ const styles = StyleSheet.create({
   hubSubLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '600', marginTop: 1 },
   sectionHeaderHome: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: GRID_PADDING, marginTop: 20, marginBottom: 10 },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
-  sectionTitle: { fontSize: 12, fontWeight: '900', opacity: 0.4, letterSpacing: 1.2 },
+  sectionTitle: { fontSize: 11, fontWeight: '900', opacity: 0.5, letterSpacing: 2.0 },
+  statSeparator: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.1)', marginHorizontal: 8 },
+  statCount: { fontSize: 9, fontWeight: '800', opacity: 0.3, letterSpacing: 1 },
   seeMoreText: { fontSize: 11, fontWeight: '900', color: '#007AFF', opacity: 0.8 },
   listContent: { padding: GRID_PADDING, paddingBottom: 120 },
   pdfAssetCard: { 
@@ -761,6 +921,27 @@ const styles = StyleSheet.create({
     shadowRadius: 6, 
     shadowOffset: { width: 0, height: 3 } 
   },
+  ghostHistoryCard: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 16, 
+    borderRadius: 22, 
+    marginBottom: 12, 
+    borderWidth: 1.5, 
+    borderColor: 'rgba(0,122,255,0.2)', 
+    borderStyle: 'dashed' 
+  },
+  ghostIconWrapper: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 12, 
+    backgroundColor: 'rgba(0,122,255,0.08)', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 16 
+  },
+  ghostTitle: { fontSize: 13, fontWeight: '800', color: ACCENT_BLUE },
+  ghostSubtitle: { fontSize: 11, fontWeight: '600', opacity: 0.4, marginTop: 2 },
   pdfAssetThumbnail: { 
     width: 64, 
     height: 64, 
@@ -816,6 +997,7 @@ const styles = StyleSheet.create({
   imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
   imageCardContainer: { width: ITEM_WIDTH },
   imageCard: { aspectRatio: 1, borderRadius: 20, overflow: 'hidden', backgroundColor: '#FFF', elevation: 6, shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  skeletonBox: { backgroundColor: 'rgba(0,0,0,0.05)', borderColor: 'rgba(0,0,0,0.05)', borderWidth: 1 },
   previewThumbnail: { width: '100%', height: '100%' },
   removeImageBtn: { position: 'absolute', top: 8, right: 8, zIndex: 20 },
   removeIconCircle: { backgroundColor: 'rgba(255,59,48,0.9)', width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -825,7 +1007,7 @@ const styles = StyleSheet.create({
   convertButtonPremium: { height: 68, borderRadius: 24, backgroundColor: PDF_RED, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 12, shadowColor: PDF_RED, shadowOpacity: 0.3, shadowRadius: 15 },
   convertButtonText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
   processingContainer: { alignItems: 'center', justifyContent: 'center' },
-  statusTextPremium: { marginTop: 12, fontSize: 14, fontWeight: '800', color: PDF_RED, opacity: 0.9 },
+  statusTextPremium: { marginTop: 12, fontSize: 14, fontWeight: '800', color: PDF_RED, opacity: 0.9, textAlign: 'center' },
   premiumSearchContainer: { paddingHorizontal: GRID_PADDING, paddingBottom: 20 },
   searchInner: { flexDirection: 'row', alignItems: 'center', height: 58, borderRadius: 18, paddingHorizontal: 18, elevation: 4, borderWidth: 1.5 },
   searchInput: { flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600' },

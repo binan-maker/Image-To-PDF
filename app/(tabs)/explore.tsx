@@ -84,7 +84,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // Removed Animated.View entering from row to prevent "reloading" sensation on state changes
   const SettingRow = ({ 
     icon, 
     title, 
@@ -138,7 +137,6 @@ export default function SettingsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {/* Symmetrical Header (matches Document Archive) */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity 
           style={[styles.backButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
@@ -149,7 +147,6 @@ export default function SettingsScreen() {
         
         <ThemedText style={styles.headerTitle}>SETTINGS</ThemedText>
         
-        {/* Spacer for perfect center alignment */}
         <View style={styles.headerSpacer} />
       </View>
 
@@ -182,7 +179,7 @@ export default function SettingsScreen() {
         <SettingRow 
           icon="info.circle.fill" 
           title="User Manual" 
-          subtitle="Learn how to use Image → PDF"
+          subtitle="True facts about app performance"
           onPress={() => setShowManual(true)}
         />
 
@@ -205,7 +202,7 @@ export default function SettingsScreen() {
         <SettingRow 
           icon="checkmark.circle.fill" 
           title="App Version" 
-          subtitle="v1.0.1 Stable"
+          subtitle="v1.0.2 Performance+"
           onPress={handleVersionPress}
         />
 
@@ -216,10 +213,8 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-      {/* User Manual Modal */}
       <Modal visible={showManual} animationType="slide" presentationStyle="pageSheet">
         <ThemedView style={styles.container}>
-          {/* Aligned Modal Header - Added insets.top to fix "too high up" issue */}
           <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
             <TouchableOpacity 
               style={[styles.backButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
@@ -235,48 +230,62 @@ export default function SettingsScreen() {
 
           <ScrollView contentContainerStyle={styles.manualScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.manualIntro}>
-              <ThemedText style={styles.manualIntroTitle}>Master Your Documents</ThemedText>
-              <ThemedText style={styles.manualIntroSub}>A quick guide to using Image → PDF premium features.</ThemedText>
+              <ThemedText style={styles.manualIntroTitle}>Truthful Engineering</ThemedText>
+              <ThemedText style={styles.manualIntroSub}>Understanding the advanced technology powering your documents.</ThemedText>
             </View>
 
             <ManualSection 
-              title="Creating PDFs" 
-              icon="plus" 
+              title="Scale & Stability" 
+              icon="slider.horizontal.3" 
               color="#007AFF"
-              description="Quickly convert your photo gallery into professional documents."
+              description="How we handle 100+ images without crashing your device."
               steps={[
-                "Tap 'Select Images' on the Home screen hub.",
-                "Choose multiple photos from your library.",
-                "Long-press any thumbnail to drag and reorder pages.",
-                "Give your document a clear title.",
-                "Tap 'Generate PDF' and wait for the ink to dry."
+                "Large image batches create massive memory footprints during conversion.",
+                "To prevent 'Blank Page' errors, we automatically resize pages to 800px width.",
+                "This resolution is optimized for standard A4 mobile viewing and sharing.",
+                "Sequential processing ensures the system never runs out of RAM.",
+                "For batches over 150 images, we recommend splitting into two documents for safety."
               ]}
             />
 
             <ManualSection 
-              title="Library Management" 
-              icon="photo.on.rectangle.angled" 
-              color="#FF3B30"
-              description="Keep your digital archive clean and organized."
+              title="Privacy Standards" 
+              icon="lock.fill" 
+              color="#34C759"
+              description="Your data never leaves your physical device."
               steps={[
-                "Tap 'View All PDFs' to enter your full archive.",
-                "Use the search icon at the top to find specific files instantly.",
-                "Tap the ellipsis menu (⋯) on any card for actions.",
-                "Rename files to keep your storage searchable.",
-                "Delete old drafts to save space on your device."
+                "This app is 100% offline. No cloud, no tracking, no servers.",
+                "PDF generation happens in a secure sandbox on your local CPU.",
+                "Temporary optimization files are deleted immediately after document creation.",
+                "The app only requests access to the photos you specifically select.",
+                "Your privacy is guaranteed by the code, not just a policy."
               ]}
             />
 
             <ManualSection 
-              title="Pro Tips" 
+              title="Mastering the Draft" 
               icon="paintbrush" 
-              color="#FFD700"
-              description="Get the most out of your premium experience."
+              color="#FF3B30"
+              description="Advanced control over your final output."
               steps={[
-                "Drag and drop isn't just for ordering - it's for flow.",
-                "Use high-quality images for the sharpest PDF results.",
-                "Share directly from the archive to email or cloud storage.",
-                "Keep an eye on the hub stats for storage management."
+                "Use 'Selection Guard' during bulk imports to prevent UI freezing.",
+                "Long-press any page in the draft to enter 'Draggable Mode'.",
+                "Tap the '+' icon to add more images to an existing draft.",
+                "Rename files in the Archive to keep your storage organized.",
+                "Clear the archive regularly if you handle high-resolution image batches."
+              ]}
+            />
+
+            <ManualSection 
+              title="Troubleshooting" 
+              icon="exclamationmark.triangle.fill" 
+              color="#FF9500"
+              description="Real solutions for common workflow issues."
+              steps={[
+                "Blank PDF? Usually caused by a memory spike. Restart the app and try fewer images.",
+                "Slow Loading? Bulk optimizing 100 images can take 30-60 seconds on older CPUs.",
+                "Missing Thumbnails? Recalculate stats in Settings to refresh the cache.",
+                "Sharing issues? Ensure you have an active PDF viewer installed on your OS."
               ]}
             />
             
@@ -285,7 +294,6 @@ export default function SettingsScreen() {
         </ThemedView>
       </Modal>
 
-      {/* Secret Modal */}
       <Modal visible={showSecret} transparent animationType="none">
         <Pressable style={styles.secretOverlay} onPress={() => setShowSecret(false)}>
           <Animated.View entering={FadeIn.duration(400)} style={StyleSheet.absoluteFill}>
@@ -326,7 +334,7 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
   },
   headerSpacer: {
-    width: 44, // Matches backButton width for centering
+    width: 44,
   },
   backButton: {
     width: 44,
@@ -334,15 +342,15 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 2, // Matched Document Archive
+    elevation: 2,
     shadowOpacity: 0.1,
-    shadowRadius: 4, // Matched Document Archive
+    shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
   },
   headerTitle: {
     fontSize: 14,
     fontWeight: '900',
-    opacity: 0.9, // Matched Document Archive
+    opacity: 0.9,
     letterSpacing: 1,
     textAlign: 'center',
   },
