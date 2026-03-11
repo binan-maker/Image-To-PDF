@@ -20,6 +20,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -27,7 +28,7 @@ import {
 import {
   Gesture,
   GestureDetector,
-  GestureHandlerRootView
+  GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
@@ -45,10 +46,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
+import { Brand, Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 interface PdfDoc {
@@ -59,134 +58,96 @@ interface PdfDoc {
   uri: string;
   thumbnailUri?: string;
   timestamp: number;
-  isGhost?: boolean; 
+  isGhost?: boolean;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const GRID_PADDING = 20;
-const GAP = 12;
-const ITEM_WIDTH = (SCREEN_WIDTH - (GRID_PADDING * 2) - GAP) / 2;
+const { width: SW, height: SH } = Dimensions.get('window');
+const GRID_PAD = 16;
+const GAP = 10;
+const ITEM_W = (SW - GRID_PAD * 2 - GAP) / 2;
 
-const PDF_RED = '#E53935';
-const ACCENT_BLUE = '#007AFF';
-
-const STATUS_MESSAGES = [
-  "Mixing premium ink...",
-  "Applying paper texture...",
-  "Stitching pages together...",
-  "Finalizing document layers...",
-  "Baking your PDF file...",
+const STATUS_MSGS = [
+  'Compressing images…',
+  'Building pages…',
+  'Stitching document…',
+  'Finalizing PDF…',
+  'Almost done…',
 ];
 
-const SelectionGuard = memo(({ message }: { message?: string }) => {
-  return (
-    <Animated.View 
-      entering={FadeIn.duration(100)} 
-      exiting={FadeOut.duration(200)} 
-      style={[styles.selectionGuard, StyleSheet.absoluteFill]}
-    >
-      <View style={styles.guardContent}>
-        <ActivityIndicator color={PDF_RED} size="large" />
-        <ThemedText style={styles.guardTitle}>STITCHING YOUR STORY</ThemedText>
-        <ThemedText style={styles.guardSubtitle}>{message || "Preparing your boutique workspace..."}</ThemedText>
-      </View>
-    </Animated.View>
-  );
-});
-
 const SkeletonItem = () => {
-  const opacity = useSharedValue(0.3);
+  const opacity = useSharedValue(0.25);
   useEffect(() => {
-    opacity.value = withRepeat(withTiming(0.6, { duration: 1000 }), -1, true);
+    opacity.value = withRepeat(withTiming(0.55, { duration: 900 }), -1, true);
   }, []);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }));
-
-  return (
-    <Animated.View style={[styles.imageCard, styles.skeletonBox, animatedStyle]} />
-  );
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View style={[styles.draftCard, styles.skeleton, style]} />;
 };
 
-const DraggableItem = memo(({ 
-  uri, 
-  index, 
-  total, 
-  onSwap, 
-  onRemove 
-}: { 
-  uri: string, 
-  index: number, 
-  total: number, 
-  onSwap: (from: number, to: number) => void,
-  onRemove: (idx: number) => void
+const DraggableItem = memo(({
+  uri, index, total, onSwap, onRemove, colorScheme,
+}: {
+  uri: string; index: number; total: number;
+  onSwap: (f: number, t: number) => void;
+  onRemove: (i: number) => void;
+  colorScheme: 'light' | 'dark';
 }) => {
   const isDragging = useSharedValue(false);
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: withSpring(isDragging.value ? 1.08 : 1) },
-    ],
-    zIndex: isDragging.value ? 1000 : 1,
-    shadowOpacity: withSpring(isDragging.value ? 0.3 : 0.08),
-  } as any));
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
 
-  const dragGesture = Gesture.Pan()
-    .activateAfterLongPress(250)
-    .onStart(() => {
-      isDragging.value = true;
-    })
-    .onUpdate((e) => {
-      translateX.value = e.translationX;
-      translateY.value = e.translationY;
-    })
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: tx.value },
+      { translateY: ty.value },
+      { scale: withSpring(isDragging.value ? 1.06 : 1) },
+    ],
+    zIndex: isDragging.value ? 999 : 1,
+    shadowOpacity: withSpring(isDragging.value ? 0.25 : 0.06) as any,
+  }));
+
+  const drag = Gesture.Pan()
+    .activateAfterLongPress(220)
+    .onStart(() => { isDragging.value = true; })
+    .onUpdate((e) => { tx.value = e.translationX; ty.value = e.translationY; })
     .onEnd((e) => {
-      const colShift = Math.round(e.translationX / (ITEM_WIDTH + GAP));
-      const rowShift = Math.round(e.translationY / (ITEM_WIDTH + GAP));
-      const indexShift = colShift + (rowShift * 2);
-      const targetIndex = Math.max(0, Math.min(total - 1, index + indexShift));
-      if (targetIndex !== index) runOnJS(onSwap)(index, targetIndex);
-      translateX.value = withSpring(0);
-      translateY.value = withSpring(0);
+      const colShift = Math.round(e.translationX / (ITEM_W + GAP));
+      const rowShift = Math.round(e.translationY / (ITEM_W + GAP));
+      const target = Math.max(0, Math.min(total - 1, index + colShift + rowShift * 2));
+      if (target !== index) runOnJS(onSwap)(index, target);
+      tx.value = withSpring(0);
+      ty.value = withSpring(0);
       isDragging.value = false;
     });
 
   return (
-    <GestureDetector gesture={dragGesture}>
-      <Animated.View entering={FadeIn.duration(300)} layout={LinearTransition.springify()} style={[styles.imageCardContainer, animatedStyle]}>
-        <View style={styles.imageCard}>
-          <Image source={{ uri }} style={[styles.previewThumbnail]} contentFit="cover" cachePolicy="memory-disk" />
-          
-          <TouchableOpacity 
-            style={styles.removeImageBtn} 
-            onPress={() => onRemove(index)}
-          >
-            <View style={styles.removeIconCircle}>
-              <IconSymbol name="plus" size={12} color="#FFF" style={{ transform: [{ rotate: '45deg' }] }} />
+    <GestureDetector gesture={drag}>
+      <Animated.View
+        entering={FadeIn.duration(250)}
+        layout={LinearTransition.springify()}
+        style={[styles.draftCardWrap, animStyle]}
+      >
+        <View style={[styles.draftCard, { backgroundColor: colorScheme === 'dark' ? '#27272A' : '#F8FAFC' }]}>
+          <Image source={{ uri }} style={styles.draftThumb} contentFit="cover" cachePolicy="memory-disk" />
+          <TouchableOpacity style={styles.draftRemoveBtn} onPress={() => onRemove(index)}>
+            <View style={styles.draftRemoveCircle}>
+              <Text style={styles.draftRemoveX}>✕</Text>
             </View>
           </TouchableOpacity>
-
-          <View style={styles.orderRibbon}>
-            <ThemedText style={styles.orderRibbonText}>PG {index + 1}</ThemedText>
+          <View style={styles.pageTag}>
+            <Text style={styles.pageTagText}>{index + 1}</Text>
           </View>
-          
-          <View style={styles.thumbnailGloss} />
         </View>
       </Animated.View>
     </GestureDetector>
   );
 });
 
-export default function LibraryScreen() {
+export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
-  const themeColors = Colors[colorScheme];
+  const tc = Colors[colorScheme];
+  const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  
+
   const [pdfs, setPdfs] = useState<PdfDoc[]>([]);
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -195,37 +156,25 @@ export default function LibraryScreen() {
   const [isPreparingDraft, setIsPreparingDraft] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   const [showDraftModal, setShowDraftModal] = useState(false);
-  const [showFullLibrary, setShowFullLibrary] = useState(false);
-  const [isSearchActive, setIsSearchActive] = useState(false);
-  
+  const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [pdfName, setPdfName] = useState('');
   const [statusIdx, setStatusIdx] = useState(0);
   const [progressMsg, setProgressMsg] = useState('');
   const [libSearchQuery, setLibSearchQuery] = useState('');
-
-  const [contextMenu, setContextMenu] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    item: PdfDoc | null;
-  }>({ visible: false, x: 0, y: 0, item: null });
-
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean; x: number; y: number; item: PdfDoc | null;
+  }>({ visible: false, x: 0, y: 0, item: null });
 
   const pulse = useSharedValue(1);
-
-  // FIX: Created an animated style to avoid reading shared value during render
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse.value }],
-  }));
+  const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
   useEffect(() => {
     if (isProcessing) {
       pulse.value = withRepeat(
-        withSequence(withTiming(1.05, { duration: 800 }), withTiming(1, { duration: 800 })),
-        -1,
-        false
+        withSequence(withTiming(1.04, { duration: 700 }), withTiming(1, { duration: 700 })),
+        -1, false
       );
     } else {
       pulse.value = 1;
@@ -233,783 +182,672 @@ export default function LibraryScreen() {
   }, [isProcessing]);
 
   useEffect(() => {
-    let interval: any;
+    let iv: any;
     if (isProcessing && !progressMsg) {
-      interval = setInterval(() => {
-        setStatusIdx((prev) => (prev + 1) % STATUS_MESSAGES.length);
-      }, 1500);
+      iv = setInterval(() => setStatusIdx(p => (p + 1) % STATUS_MSGS.length), 1400);
     }
-    return () => clearInterval(interval);
+    return () => clearInterval(iv);
   }, [isProcessing, progressMsg]);
 
-  const loadLibrary = async (showSpinner = true) => {
-    if (showSpinner) setIsLoadingLibrary(true);
+  const loadLibrary = async (spinner = true) => {
+    if (spinner) setIsLoadingLibrary(true);
     try {
-      const docDir = FileSystem.documentDirectory;
-      if (!docDir) return;
-
-      const files = await FileSystem.readDirectoryAsync(docDir);
-      const pdfFiles = files.filter(file => file.toLowerCase().endsWith('.pdf'));
-
-      const pdfDocs: PdfDoc[] = await Promise.all(
-        pdfFiles.map(async (fileName) => {
-          const fileUri = `${docDir}${fileName}`;
-          const thumbUri = `${docDir}${fileName.replace('.pdf', '.jpg')}`;
-          
-          const info = await FileSystem.getInfoAsync(fileUri);
-          const thumbInfo = await FileSystem.getInfoAsync(thumbUri);
-          
-          let size = '0 MB';
-          let timestamp = 0;
-          if (info.exists) {
-            size = `${(info.size / (1024 * 1024)).toFixed(2)} MB`;
-            timestamp = info.modificationTime || Date.now() / 1000;
-          }
-          return { 
-            id: fileName, 
-            name: fileName, 
-            date: new Date(timestamp * 1000).toLocaleDateString(), 
-            size, 
-            uri: fileUri, 
-            thumbnailUri: thumbInfo.exists ? thumbUri : undefined,
-            timestamp 
-          };
-        })
-      );
-      
-      const sorted = pdfDocs.sort((a, b) => b.timestamp - a.timestamp);
-      setPdfs(sorted);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsLoadingLibrary(false);
-      setIsRefreshing(false);
-    }
+      const dir = FileSystem.documentDirectory;
+      if (!dir) return;
+      const files = await FileSystem.readDirectoryAsync(dir);
+      const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf'));
+      const docs: PdfDoc[] = await Promise.all(pdfFiles.map(async (fn) => {
+        const uri = `${dir}${fn}`;
+        const thumbUri = `${dir}${fn.replace('.pdf', '.jpg')}`;
+        const info = await FileSystem.getInfoAsync(uri);
+        const thumbInfo = await FileSystem.getInfoAsync(thumbUri);
+        let size = '0 MB', ts = 0;
+        if (info.exists) {
+          size = `${(info.size / (1024 * 1024)).toFixed(2)} MB`;
+          ts = info.modificationTime || Date.now() / 1000;
+        }
+        return {
+          id: fn, name: fn, uri,
+          thumbnailUri: thumbInfo.exists ? thumbUri : undefined,
+          date: new Date(ts * 1000).toLocaleDateString(), size, timestamp: ts,
+        };
+      }));
+      setPdfs(docs.sort((a, b) => b.timestamp - a.timestamp));
+    } catch (e) { console.error(e); }
+    finally { setIsLoadingLibrary(false); setIsRefreshing(false); }
   };
 
-  useEffect(() => {
-    loadLibrary();
-  }, []);
+  useEffect(() => { loadLibrary(); }, []);
 
   const openPdf = async (uri: string) => {
     try {
       if (Platform.OS === 'android') {
-        const contentUri = await FileSystem.getContentUriAsync(uri);
+        const cu = await FileSystem.getContentUriAsync(uri);
         await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-          data: contentUri,
-          flags: 1,
-          type: 'application/pdf',
+          data: cu, flags: 1, type: 'application/pdf',
         });
-      } else {
-        await Sharing.shareAsync(uri);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Could not open the PDF viewer.');
-    }
+      } else { await Sharing.shareAsync(uri); }
+    } catch { Alert.alert('Error', 'Could not open PDF viewer.'); }
   };
 
-  const pickImages = async (isAppending = false) => {
+  const pickImages = async (appending = false) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') return;
-
     setIsSelecting(true);
-
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        quality: 0.7,
+        mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.7,
       });
-
-      if (result.canceled) {
-        setIsSelecting(false);
-        return;
-      }
-
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-
-      if (!isAppending) {
-        const randomNum = Math.floor(100000 + Math.random() * 900000);
-        setPdfName(`PDF_${randomNum}`);
-      }
-
-      const uris = result.assets.map(asset => asset.uri);
-      
+      if (result.canceled) { setIsSelecting(false); return; }
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (!appending) setPdfName(`PDF_${Math.floor(100000 + Math.random() * 900000)}`);
+      const uris = result.assets.map(a => a.uri);
       setShowDraftModal(true);
       setIsPreparingDraft(true);
-
       setTimeout(() => {
-        if (isAppending) {
-          setSelectedImages(prev => [...prev, ...uris]);
-        } else {
-          setSelectedImages(uris);
-        }
+        if (appending) setSelectedImages(prev => [...prev, ...uris]);
+        else setSelectedImages(uris);
         setIsPreparingDraft(false);
         setIsSelecting(false);
-      }, 800);
-    } catch (e) {
-      setIsSelecting(false);
-      setIsPreparingDraft(false);
-      Alert.alert("Error", "Could not load images.");
-    }
+      }, 700);
+    } catch { setIsSelecting(false); setIsPreparingDraft(false); Alert.alert('Error', 'Could not load images.'); }
   };
 
   const generatePdf = async () => {
     if (selectedImages.length === 0) {
-      Alert.alert('No Pages', 'Please add at least one image to create a PDF.');
-      return;
+      Alert.alert('No Images', 'Add at least one image.'); return;
     }
-    
     setIsProcessing(true);
-    const tempResizedUris: string[] = [];
+    const tempUris: string[] = [];
     try {
-      let htmlPages = "";
-      const total = selectedImages.length;
-      
-      // OPTIMIZATION: Sequential processing with lower width to fit bridge payload limits
-      for (let i = 0; i < total; i++) {
-        const uri = selectedImages[i];
-        setProgressMsg(`Optimizing page ${i + 1} of ${total}...`);
-        
-        // 750px width is perfect for mobile sharing and keeps the payload under the native bridge limit even for 100+ pages
-        const manipResult = await ImageManipulator.manipulateAsync(
-          uri,
-          [{ resize: { width: 750 } }], 
+      let html = '';
+      for (let i = 0; i < selectedImages.length; i++) {
+        setProgressMsg(`Optimizing ${i + 1} of ${selectedImages.length}…`);
+        const r = await ImageManipulator.manipulateAsync(
+          selectedImages[i], [{ resize: { width: 750 } }],
           { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
         );
-        
-        htmlPages += `<div class="page"><img src="data:image/jpeg;base64,${manipResult.base64}" /></div>`;
-        
-        if (i === 0) {
-          tempResizedUris.push(manipResult.uri);
-        }
-
-        // Give JS thread room to breathe and process UI updates/GC
-        if (i % 15 === 0 && Platform.OS !== 'web') {
-           await new Promise(r => setTimeout(r, 60));
-        }
+        html += `<div class="page"><img src="data:image/jpeg;base64,${r.base64}" /></div>`;
+        if (i === 0) tempUris.push(r.uri);
+        if (i % 15 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
       }
-
-      setProgressMsg('Baking boutique PDF...');
-      
-      const htmlContent = `
-        <!DOCTYPE html><html><head><style>
-          @page { size: A4; margin: 0; }
-          body { margin: 0; padding: 0; background-color: #FFFFFF; font-family: sans-serif; }
-          .page { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; page-break-after: always; overflow: hidden; }
-          img { max-width: 96%; max-height: 96%; object-fit: contain; }
-        </style></head><body>
-          ${htmlPages}
-        </body></html>
-      `;
-
-      const { uri: tempUri } = await Print.printToFileAsync({ html: htmlContent });
-      const docDir = FileSystem.documentDirectory;
-      if (!docDir) throw new Error("Storage unavailable");
-
-      const finalBaseName = pdfName.trim() || `Document_${Math.floor(Date.now()/1000)}`;
-      const finalFileName = `${finalBaseName}.pdf`.replace(/[^a-z0-9._-]/gi, '_');
-      const destination = `${docDir}${finalFileName}`;
-      const thumbDestination = destination.replace('.pdf', '.jpg');
-      
-      await FileSystem.copyAsync({ from: tempUri, to: destination });
-      if (tempResizedUris.length > 0) {
-        await FileSystem.copyAsync({ from: tempResizedUris[0], to: thumbDestination });
-      }
-      
+      setProgressMsg('Building PDF…');
+      const fullHtml = `<!DOCTYPE html><html><head><style>
+        @page{size:A4;margin:0}body{margin:0;padding:0;background:#fff}
+        .page{width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;page-break-after:always;overflow:hidden}
+        img{max-width:96%;max-height:96%;object-fit:contain}
+      </style></head><body>${html}</body></html>`;
+      const { uri: tmp } = await Print.printToFileAsync({ html: fullHtml });
+      const dir = FileSystem.documentDirectory;
+      if (!dir) throw new Error('No storage');
+      const base = (pdfName.trim() || `Doc_${Date.now()}`).replace(/[^a-z0-9._-]/gi, '_');
+      const dest = `${dir}${base}.pdf`;
+      const thumbDest = dest.replace('.pdf', '.jpg');
+      await FileSystem.copyAsync({ from: tmp, to: dest });
+      if (tempUris.length > 0) await FileSystem.copyAsync({ from: tempUris[0], to: thumbDest });
       await loadLibrary(false);
       setShowDraftModal(false);
       setSelectedImages([]);
-    } catch (error: any) {
-      console.error(error);
-      Alert.alert('Memory Exhausted', 'For documents with 100+ images, please ensure your phone has enough free RAM. Try closing background apps or generating in two separate PDFs.');
-    } finally {
-      setIsProcessing(false);
-      setProgressMsg('');
-    }
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert('Error', 'Could not create PDF. Try fewer images or close background apps.');
+    } finally { setIsProcessing(false); setProgressMsg(''); }
   };
 
-  const swapImages = useCallback((fromIdx: number, toIdx: number) => {
+  const swapImages = useCallback((f: number, t: number) => {
     setSelectedImages(prev => {
-      const newImages = [...prev];
-      [newImages[fromIdx], newImages[toIdx]] = [newImages[toIdx], newImages[fromIdx]];
-      return newImages;
+      const n = [...prev]; [n[f], n[t]] = [n[t], n[f]]; return n;
     });
   }, []);
 
-  const removeImage = useCallback((idx: number) => {
-    setSelectedImages(prev => prev.filter((_, i) => i !== idx));
+  const removeImage = useCallback((i: number) => {
+    setSelectedImages(prev => prev.filter((_, idx) => idx !== i));
   }, []);
 
   const saveRename = async (item: PdfDoc) => {
-    const currentBaseName = item.name.replace('.pdf', '');
-    const newValue = editingValue.trim();
-    
-    if (!newValue || newValue === currentBaseName) {
-      setEditingId(null);
-      return;
-    }
-    
+    const cur = item.name.replace('.pdf', '');
+    const val = editingValue.trim();
+    if (!val || val === cur) { setEditingId(null); return; }
     try {
-      const newFileName = `${newValue}.pdf`;
-      const newUri = `${FileSystem.documentDirectory}${newFileName}`;
-      const newThumbUri = newUri.replace('.pdf', '.jpg');
-      
-      const info = await FileSystem.getInfoAsync(newUri);
-      if (info.exists) {
-        Alert.alert('Error', 'A file with this name already exists.');
-        setEditingId(null);
-        return;
-      }
-
+      const newFn = `${val}.pdf`;
+      const newUri = `${FileSystem.documentDirectory}${newFn}`;
+      const newThumb = newUri.replace('.pdf', '.jpg');
+      const exists = await FileSystem.getInfoAsync(newUri);
+      if (exists.exists) { Alert.alert('Error', 'File name already exists.'); setEditingId(null); return; }
       await FileSystem.copyAsync({ from: item.uri, to: newUri });
       await FileSystem.deleteAsync(item.uri);
-      
       if (item.thumbnailUri) {
-        await FileSystem.copyAsync({ from: item.thumbnailUri, to: newThumbUri });
+        await FileSystem.copyAsync({ from: item.thumbnailUri, to: newThumb });
         await FileSystem.deleteAsync(item.thumbnailUri);
       }
-      
-      setPdfs(prev => prev.map(p => {
-        if (p.id === item.id) {
-          return {
-            ...p,
-            id: newFileName,
-            name: newFileName,
-            uri: newUri,
-            thumbnailUri: p.thumbnailUri ? newThumbUri : undefined
-          };
-        }
-        return p;
-      }));
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Rename Failed', 'Could not rename the file.');
-    } finally {
-      setEditingId(null);
-    }
+      setPdfs(prev => prev.map(p => p.id === item.id
+        ? { ...p, id: newFn, name: newFn, uri: newUri, thumbnailUri: p.thumbnailUri ? newThumb : undefined }
+        : p));
+    } catch { Alert.alert('Rename Failed', 'Could not rename file.'); }
+    finally { setEditingId(null); }
   };
 
-  const showContextMenu = (event: any, item: PdfDoc) => {
-    const { pageX, pageY } = event.nativeEvent;
-    const adjustedX = Math.min(pageX, SCREEN_WIDTH - 200);
-    const adjustedY = Math.min(pageY, SCREEN_HEIGHT - 200);
-
-    setContextMenu({
-      visible: true,
-      x: adjustedX,
-      y: adjustedY,
-      item,
-    });
+  const showCtx = (e: any, item: PdfDoc) => {
+    const { pageX, pageY } = e.nativeEvent;
+    setContextMenu({ visible: true, x: Math.min(pageX, SW - 200), y: Math.min(pageY, SH - 160), item });
   };
 
-  const boutiqueRecentData = useMemo(() => {
+  const recentData = useMemo(() => {
     const sliced = pdfs.slice(0, 5);
-    if (pdfs.length > 5) {
-      return [...sliced, { id: 'ghost_history_card', isGhost: true } as PdfDoc];
-    }
+    if (pdfs.length > 5) return [...sliced, { id: 'ghost', isGhost: true } as PdfDoc];
     return sliced;
   }, [pdfs]);
 
-  const renderPdfItem: ListRenderItem<PdfDoc> = useCallback(({ item, index }) => {
+  const filteredPdfs = useMemo(() => {
+    if (!libSearchQuery.trim()) return pdfs;
+    return pdfs.filter(p => p.name.toLowerCase().includes(libSearchQuery.toLowerCase()));
+  }, [pdfs, libSearchQuery]);
+
+  const renderDoc: ListRenderItem<PdfDoc> = useCallback(({ item, index }) => {
     if (item.isGhost) {
-      const remainingCount = pdfs.length - 5;
       return (
-        <Animated.View entering={FadeInDown.delay(index * 50)} layout={LinearTransition}>
-          <TouchableOpacity 
-            style={[styles.ghostHistoryCard, { backgroundColor: colorScheme === 'dark' ? 'rgba(0,122,255,0.05)' : 'rgba(255,255,255,0.5)' }]}
-            onPress={() => setShowFullLibrary(true)}
-            activeOpacity={0.7}
+        <Animated.View entering={FadeInDown.delay(index * 40)} layout={LinearTransition}>
+          <TouchableOpacity
+            style={[styles.docCard, { backgroundColor: tc.surface }]}
+            onPress={() => setShowLibraryModal(true)}
+            activeOpacity={0.75}
           >
-            <View style={styles.ghostIconWrapper}>
-              <IconSymbol name="photo.on.rectangle.angled" size={24} color={ACCENT_BLUE} />
+            <View style={[styles.docThumbBox, { backgroundColor: `${Brand.indigo}15` }]}>
+              <IconSymbol name="photo.on.rectangle.angled" size={22} color={Brand.indigo} />
             </View>
-            <View style={styles.pdfAssetDetails}>
-              <ThemedText style={styles.ghostTitle}>Explore Full Archive</ThemedText>
-              <ThemedText style={styles.ghostSubtitle}>+{remainingCount} documents waiting for you</ThemedText>
+            <View style={styles.docInfo}>
+              <Text style={[styles.docName, { color: Brand.indigo }]}>View full library</Text>
+              <Text style={[styles.docMeta, { color: tc.textSecondary }]}>+{pdfs.length - 5} more documents</Text>
             </View>
-            <IconSymbol name="chevron.right" size={16} color={ACCENT_BLUE} style={{ opacity: 0.5 }} />
+            <IconSymbol name="chevron.right" size={16} color={Brand.indigo} />
           </TouchableOpacity>
         </Animated.View>
       );
     }
 
     const isEditing = editingId === item.id;
-    const displayName = item.name.replace(/\.pdf$/i, '');
+    const name = item.name.replace(/\.pdf$/i, '');
 
     return (
-      <Animated.View entering={FadeInDown.delay(index * 50)} layout={LinearTransition}>
-        <TouchableOpacity 
-          style={[styles.pdfAssetCard, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF' }]}
+      <Animated.View entering={FadeInDown.delay(index * 40)} layout={LinearTransition}>
+        <TouchableOpacity
+          style={[styles.docCard, { backgroundColor: tc.surface }]}
           onPress={() => !isEditing && openPdf(item.uri)}
-          activeOpacity={isEditing ? 1 : 0.8}
+          activeOpacity={isEditing ? 1 : 0.75}
         >
-          <View style={styles.pdfAssetThumbnail}>
+          <View style={styles.docThumbBox}>
             {item.thumbnailUri ? (
               <Image source={{ uri: item.thumbnailUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
             ) : (
-              <View style={styles.pdfIcon3D}>
-                <IconSymbol name="doc.text.fill" size={24} color="#FFF" />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: `${Brand.pdfRed}15`, alignItems: 'center', justifyContent: 'center' }]}>
+                <IconSymbol name="doc.text.fill" size={22} color={Brand.pdfRed} />
               </View>
             )}
-            
-            <View style={styles.pdfRibbon}>
-              <ThemedText style={styles.pdfRibbonText}>PDF</ThemedText>
+            <View style={styles.pdfBadgeSmall}>
+              <Text style={styles.pdfBadgeSmallText}>PDF</Text>
             </View>
-
-            <View style={styles.thumbnailGloss} />
           </View>
 
-          <View style={styles.pdfAssetDetails}>
+          <View style={styles.docInfo}>
             {isEditing ? (
               <TextInput
-                style={[styles.assetRenameInput, { color: themeColors.text }]}
+                style={[styles.renameInput, { color: tc.text, borderColor: Brand.indigo }]}
                 value={editingValue}
                 onChangeText={setEditingValue}
                 autoFocus
                 selectTextOnFocus
-                onSubmitEditing={() => Keyboard.dismiss()} 
-                onBlur={() => saveRename(item)} 
+                onSubmitEditing={() => Keyboard.dismiss()}
+                onBlur={() => saveRename(item)}
                 returnKeyType="done"
               />
             ) : (
-              <View style={styles.assetNameRow}>
-                <IconSymbol name="doc.text.fill" size={10} color={PDF_RED} style={{ marginRight: 6, opacity: 0.7 }} />
-                <ThemedText style={styles.assetName} numberOfLines={1}>{displayName}</ThemedText>
-              </View>
+              <Text style={[styles.docName, { color: tc.text }]} numberOfLines={1}>{name}</Text>
             )}
-            
-            <View style={styles.assetMetaRow}>
-              <ThemedText style={styles.assetMetaText}>{item.date}</ThemedText>
-              <View style={styles.metaDot} />
-              <ThemedText style={styles.assetMetaTextMono}>{item.size}</ThemedText>
-            </View>
+            <Text style={[styles.docMeta, { color: tc.textSecondary }]}>{item.date} · {item.size}</Text>
           </View>
 
           {!isEditing && (
-            <TouchableOpacity 
-              style={styles.assetMenuBtn} 
-              onPress={(e) => showContextMenu(e, item)}
-            >
-              <IconSymbol name="ellipsis" size={18} color={themeColors.icon} />
+            <TouchableOpacity style={styles.docMenuBtn} onPress={(e) => showCtx(e, item)}>
+              <IconSymbol name="ellipsis" size={18} color={tc.icon} />
             </TouchableOpacity>
           )}
         </TouchableOpacity>
       </Animated.View>
     );
-  }, [colorScheme, themeColors.icon, editingId, editingValue, themeColors.text, pdfs.length]);
+  }, [colorScheme, editingId, editingValue, pdfs.length, tc]);
 
-  // FIX: Hooks defined above, now safe to return SelectionGuard conditionally if needed
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const botPad = Platform.OS === 'web' ? 0 : 0;
+
   if (isSelecting) {
-    return <SelectionGuard message={progressMsg} />;
+    return (
+      <View style={[styles.guardFull, { backgroundColor: isDark ? '#09090B' : '#F1F5F9' }]}>
+        <Animated.View entering={FadeIn.duration(200)} style={styles.guardBox}>
+          <ActivityIndicator color={Brand.indigo} size="large" />
+          <Text style={[styles.guardTitle, { color: tc.text }]}>Loading Images</Text>
+          <Text style={[styles.guardSub, { color: tc.textSecondary }]}>Preparing your selection…</Text>
+        </Animated.View>
+      </View>
+    );
   }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemedView style={styles.container}>
-        <View style={styles.hubContainer}>
-          <TouchableOpacity 
-            style={[styles.hubButton, styles.primaryHub]} 
-            onPress={() => pickImages(false)}
-          >
-            <View style={styles.hubIconCircle}><IconSymbol name="plus" size={20} color="#FFF" /></View>
-            <View>
-              <ThemedText style={styles.hubLabel}>Select Images</ThemedText>
-              <ThemedText style={styles.hubSubLabel}>Start new PDF</ThemedText>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.hubButton, styles.secondaryHub]} 
-            onPress={() => setShowFullLibrary(true)}
-          >
-            <View style={styles.hubIconCircle}><IconSymbol name="photo.on.rectangle.angled" size={20} color="#FFF" /></View>
-            <View>
-              <ThemedText style={styles.hubLabel}>View All PDFs</ThemedText>
-              <ThemedText style={styles.hubSubLabel}>Full archive</ThemedText>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionHeaderHome}>
-          <View style={styles.titleRow}>
-             <ThemedText style={styles.sectionTitle}>RECENT DOCUMENTS</ThemedText>
-             {pdfs.length > 0 && (
-               <>
-                 <View style={styles.statSeparator} />
-                 <ThemedText style={styles.statCount}>{pdfs.length} TOTAL</ThemedText>
-               </>
-             )}
-          </View>
-          <TouchableOpacity onPress={() => setShowFullLibrary(true)}>
-            <ThemedText style={styles.seeMoreText}>SEE ALL</ThemedText>
-          </TouchableOpacity>
-        </View>
-
+      <View style={[styles.root, { backgroundColor: tc.background }]}>
         <FlatList<PdfDoc>
-          data={boutiqueRecentData}
+          data={recentData}
           keyExtractor={(item) => item.id}
-          renderItem={renderPdfItem}
-          contentContainerStyle={styles.listContent}
+          renderItem={renderDoc}
+          contentContainerStyle={[styles.mainList, { paddingBottom: botPad + 20 }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadLibrary(false)} />}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadLibrary(false)} tintColor={Brand.indigo} />}
+          ListHeaderComponent={
+            <View>
+              <View style={[styles.hero, { backgroundColor: isDark ? '#18181B' : '#FFFFFF' }]}>
+                <View style={styles.heroContent}>
+                  <View style={styles.heroVisual}>
+                    <View style={[styles.heroIconBox, { backgroundColor: `${Brand.indigo}18` }]}>
+                      <IconSymbol name="photo.on.rectangle.angled" size={32} color={Brand.indigo} />
+                    </View>
+                    <View style={styles.heroArrowBox}>
+                      <View style={styles.heroArrowLine} />
+                      <View style={[styles.heroArrowHead, { borderLeftColor: Brand.pdfRed }]} />
+                    </View>
+                    <View style={[styles.heroIconBox, { backgroundColor: `${Brand.pdfRed}18` }]}>
+                      <IconSymbol name="doc.text.fill" size={32} color={Brand.pdfRed} />
+                    </View>
+                  </View>
+                  <Text style={[styles.heroTitle, { color: tc.text }]}>Images to PDF</Text>
+                  <Text style={[styles.heroSub, { color: tc.textSecondary }]}>
+                    Select photos · arrange · export as a professional PDF — all on-device.
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.ctaBtn, { backgroundColor: Brand.indigo }]}
+                  onPress={() => pickImages(false)}
+                  activeOpacity={0.85}
+                >
+                  <IconSymbol name="plus" size={20} color="#FFF" />
+                  <Text style={styles.ctaBtnText}>Select Images</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.ctaBtnSecondary, { backgroundColor: isDark ? '#27272A' : '#F1F5F9', borderColor: tc.border }]}
+                  onPress={() => setShowLibraryModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <IconSymbol name="photo.on.rectangle.angled" size={18} color={tc.icon} />
+                  <Text style={[styles.ctaBtnSecondaryText, { color: tc.text }]}>View All PDFs</Text>
+                  {pdfs.length > 0 && (
+                    <View style={[styles.countBadge, { backgroundColor: Brand.indigo }]}>
+                      <Text style={styles.countBadgeText}>{pdfs.length}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.sectionRow}>
+                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>RECENT</Text>
+                {pdfs.length > 0 && (
+                  <TouchableOpacity onPress={() => setShowLibraryModal(true)}>
+                    <Text style={[styles.seeAll, { color: Brand.indigo }]}>See all</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          }
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <IconSymbol name="photo.on.rectangle.angled" size={48} color={themeColors.icon} style={{ opacity: 0.1 }} />
-              <ThemedText style={styles.emptyText}>Create your first PDF to see it here</ThemedText>
+            <View style={styles.emptyBox}>
+              <View style={[styles.emptyIcon, { backgroundColor: isDark ? '#27272A' : '#E2E8F0' }]}>
+                <IconSymbol name="doc.text.fill" size={28} color={tc.textSecondary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: tc.text }]}>No PDFs yet</Text>
+              <Text style={[styles.emptySub, { color: tc.textSecondary }]}>Tap "Select Images" above to create your first PDF</Text>
             </View>
           }
         />
 
-        <Modal visible={contextMenu.visible} transparent animationType="none">
-          <Pressable style={styles.contextMenuOverlay} onPress={() => setContextMenu(prev => ({ ...prev, visible: false }))}>
-            <Animated.View entering={ZoomIn.duration(150)} style={[styles.desktopMenu, { top: contextMenu.y, left: contextMenu.x, backgroundColor: colorScheme === 'dark' ? '#2C2C2E' : '#FFFFFF' }]}>
-              <TouchableOpacity style={styles.desktopMenuItem} onPress={() => {
-                if (!contextMenu.item) return;
-                setContextMenu(prev => ({ ...prev, visible: false }));
-                setEditingId(contextMenu.item.id);
-                setEditingValue(contextMenu.item.name.replace('.pdf', ''));
-              }}>
-                <IconSymbol name="pencil" size={16} color={themeColors.text} />
-                <ThemedText style={styles.desktopMenuText}>Rename File</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.desktopMenuItem} onPress={() => {
-                if (!contextMenu.item) return;
-                setContextMenu(prev => ({ ...prev, visible: false }));
-                Sharing.shareAsync(contextMenu.item.uri);
-              }}>
-                <IconSymbol name="square.and.arrow.up" size={16} color={themeColors.text} />
-                <ThemedText style={styles.desktopMenuText}>Share Document</ThemedText>
-              </TouchableOpacity>
-              <View style={styles.menuDivider} />
-              <TouchableOpacity style={styles.desktopMenuItem} onPress={() => {
-                const itemToDelete = contextMenu.item;
-                setContextMenu(prev => ({ ...prev, visible: false }));
-                Alert.alert('Delete Permanently', `Delete ${itemToDelete?.name}?`, [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Delete', style: 'destructive', onPress: async () => { 
-                    if(itemToDelete) {
-                      await FileSystem.deleteAsync(itemToDelete.uri); 
-                      if (itemToDelete.thumbnailUri) {
-                        await FileSystem.deleteAsync(itemToDelete.thumbnailUri);
-                      }
-                    }
-                    loadLibrary(); 
-                  } }
-                ]);
-              }}>
-                <IconSymbol name="trash.fill" size={16} color="#FF3B30" />
-                <ThemedText style={[styles.desktopMenuText, { color: '#FF3B30' }]}>Delete</ThemedText>
-              </TouchableOpacity>
+        {contextMenu.visible && contextMenu.item && (
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setContextMenu(p => ({ ...p, visible: false }))}>
+            <Animated.View
+              entering={ZoomIn.springify().damping(20)}
+              style={[styles.ctxMenu, {
+                top: contextMenu.y, left: contextMenu.x,
+                backgroundColor: isDark ? '#27272A' : '#FFFFFF',
+                borderColor: tc.border,
+              }]}
+            >
+              {[
+                { label: 'Open', icon: 'eye.fill' as const, onPress: () => openPdf(contextMenu.item!.uri) },
+                { label: 'Share', icon: 'square.and.arrow.up' as const, onPress: async () => { await Sharing.shareAsync(contextMenu.item!.uri); } },
+                { label: 'Rename', icon: 'pencil' as const, onPress: () => { setEditingId(contextMenu.item!.id); setEditingValue(contextMenu.item!.name.replace('.pdf', '')); } },
+                { label: 'Delete', icon: 'trash.fill' as const, isDestructive: true, onPress: () => {
+                  Alert.alert('Delete PDF', 'This cannot be undone.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: async () => {
+                      await FileSystem.deleteAsync(contextMenu.item!.uri);
+                      if (contextMenu.item!.thumbnailUri) await FileSystem.deleteAsync(contextMenu.item!.thumbnailUri!);
+                      setPdfs(prev => prev.filter(p => p.id !== contextMenu.item!.id));
+                    }},
+                  ]);
+                }},
+              ].map((action, i) => (
+                <TouchableOpacity
+                  key={action.label}
+                  style={[styles.ctxItem, i < 3 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tc.border }]}
+                  onPress={() => { setContextMenu(p => ({ ...p, visible: false })); action.onPress(); }}
+                >
+                  <Text style={[styles.ctxLabel, action.isDestructive && { color: Brand.pdfRed }, { color: action.isDestructive ? Brand.pdfRed : tc.text }]}>
+                    {action.label}
+                  </Text>
+                  <IconSymbol name={action.icon} size={15} color={action.isDestructive ? Brand.pdfRed : tc.icon} />
+                </TouchableOpacity>
+              ))}
             </Animated.View>
           </Pressable>
-        </Modal>
+        )}
+      </View>
 
-        <Modal visible={showFullLibrary} animationType="slide" presentationStyle="fullScreen">
-          <ThemedView style={styles.container}>
-            {isSearchActive && (
-              <View style={StyleSheet.absoluteFill}>
-                <ThemedView style={styles.container}>
-                  <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
-                    <TouchableOpacity 
-                      style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
-                      onPress={() => { setIsSearchActive(false); setLibSearchQuery(''); }}
-                    >
-                      <IconSymbol name="chevron.right" size={22} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} />
-                    </TouchableOpacity>
-                    <ThemedText style={styles.archiveTitle}>SEARCH PDFS</ThemedText>
-                    <View style={{ width: 44 }} />
-                  </View>
-
-                  <View style={styles.premiumSearchContainer}>
-                    <View style={[styles.searchInner, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF', borderColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,122,255,0.1)' }]}>
-                      <IconSymbol name="magnifyingglass" size={20} color={colorScheme === 'dark' ? '#FFFFFF' : '#007AFF'} style={{ opacity: 0.8 }} />
-                      <TextInput 
-                        style={[styles.searchInput, { color: PDF_RED }]} 
-                        placeholder="Search file name..." 
-                        placeholderTextColor={themeColors.icon} 
-                        value={libSearchQuery} 
-                        onChangeText={setLibSearchQuery} 
-                        autoFocus
-                      />
-                      {libSearchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setLibSearchQuery('')}>
-                          <View style={styles.clearSearchIcon}>
-                            <IconSymbol name="plus" size={14} color="#FFF" style={{ transform: [{ rotate: '45deg' }] }} />
-                          </View>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-
-                  <FlatList<PdfDoc>
-                    data={pdfs.filter(p => p.name.toLowerCase().includes(libSearchQuery.toLowerCase()))}
-                    keyExtractor={(item) => item.id}
-                    renderItem={renderPdfItem}
-                    contentContainerStyle={styles.listContent}
-                    showsVerticalScrollIndicator={false}
-                  />
-                </ThemedView>
-              </View>
-            )}
-
-            {!isSearchActive && (
-              <>
-                <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
-                  <TouchableOpacity 
-                    style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
-                    onPress={() => setShowFullLibrary(false)}
-                  >
-                    <IconSymbol name="chevron.right" size={22} color={themeColors.text} style={{ transform: [{ rotate: '180deg' }] }} />
-                  </TouchableOpacity>
-                  <ThemedText style={styles.archiveTitle}>DOCUMENT ARCHIVE</ThemedText>
-                  <TouchableOpacity 
-                    style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#F5F5F7' }]} 
-                    onPress={() => setIsSearchActive(true)}
-                  >
-                    <IconSymbol name="magnifyingglass" size={20} color={themeColors.text} />
-                  </TouchableOpacity>
-                </View>
-
-                <FlatList<PdfDoc>
-                  data={pdfs}
-                  keyExtractor={(item) => item.id}
-                  renderItem={renderPdfItem}
-                  contentContainerStyle={styles.listContent}
-                  showsVerticalScrollIndicator={false}
-                />
-              </>
-            )}
-          </ThemedView>
-        </Modal>
-
-        <Modal visible={showDraftModal} animationType="slide" presentationStyle="fullScreen">
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <ThemedView style={[styles.container, { backgroundColor: colorScheme === 'dark' ? '#0D0D0E' : '#F8F9FB' }]}>
-              <View style={[styles.archiveHeader, { paddingTop: insets.top + 10 }]}>
-                <TouchableOpacity 
-                  style={[styles.archiveBackButton, { backgroundColor: colorScheme === 'dark' ? '#232328' : '#FFFFFF' }]} 
-                  onPress={() => {
-                    setShowDraftModal(false);
-                    setIsProcessing(false);
-                    setIsPreparingDraft(false);
-                  }}
-                >
-                  <ThemedText style={styles.discardText}>Discard</ThemedText>
-                </TouchableOpacity>
-                
-                <ThemedText style={styles.draftHeadingText}>PDF DRAFTING</ThemedText>
-                
-                <TouchableOpacity 
-                  style={[styles.archiveBackButton, { backgroundColor: ACCENT_BLUE }]} 
-                  onPress={() => pickImages(true)}
-                >
-                   <IconSymbol name="plus" size={20} color="#FFF" />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView 
-                contentContainerStyle={styles.draftContent} 
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
+      <Modal visible={showDraftModal} animationType="slide" presentationStyle="fullScreen">
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <View style={[styles.root, { backgroundColor: tc.background }]}>
+            <View style={[styles.modalHeader, {
+              paddingTop: Platform.OS === 'web' ? 67 : insets.top + 12,
+              backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+              borderBottomColor: tc.border,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+            }]}>
+              <TouchableOpacity
+                style={[styles.modalHeaderBtn, { backgroundColor: isDark ? '#27272A' : '#F1F5F9' }]}
+                onPress={() => { setShowDraftModal(false); setIsProcessing(false); setIsPreparingDraft(false); }}
               >
-                <View style={styles.premiumInputWrapper}>
-                  <ThemedText style={[styles.vibrantLabel, { color: ACCENT_BLUE }]}>DOCUMENT TITLE</ThemedText>
-                  <TextInput 
-                    style={[styles.draftInput, { backgroundColor: colorScheme === 'dark' ? '#1C1C1E' : '#FFFFFF', color: themeColors.text }]} 
-                    value={pdfName} 
-                    onChangeText={setPdfName} 
-                    placeholder="Masterpiece name..."
-                    placeholderTextColor="rgba(0,0,0,0.2)"
-                  />
-                </View>
-                
-                <View style={styles.sectionHeaderDraft}>
-                  <ThemedText style={[styles.vibrantLabel, { color: PDF_RED }]}>
-                    {isPreparingDraft ? 'STITCHING PAGES...' : `ORGANIZE PAGES (${selectedImages.length})`}
-                  </ThemedText>
-                  <ThemedText style={styles.orderInstruction}>
-                    {isPreparingDraft ? 'Curating your boutique workspace...' : 'Touch and hold to rearrange your story'}
-                  </ThemedText>
-                </View>
+                <Text style={[styles.modalHeaderBtnText, { color: tc.textSecondary }]}>Discard</Text>
+              </TouchableOpacity>
 
-                <View style={styles.imageGrid}>
-                  {isPreparingDraft ? (
-                    <>
-                      <SkeletonItem />
-                      <SkeletonItem />
-                      <SkeletonItem />
-                      <SkeletonItem />
-                    </>
-                  ) : (
-                    selectedImages.map((uri, index) => (
-                      <DraggableItem 
-                        key={uri} 
-                        uri={uri} 
-                        index={index} 
-                        total={selectedImages.length} 
-                        onSwap={swapImages}
-                        onRemove={removeImage}
-                      />
-                    ))
-                  )}
+              <View style={styles.modalTitleBlock}>
+                <Text style={[styles.modalTitle, { color: tc.text }]}>Draft</Text>
+                <View style={[styles.pagePill, { backgroundColor: `${Brand.indigo}20` }]}>
+                  <Text style={[styles.pagePillText, { color: Brand.indigo }]}>{selectedImages.length} pages</Text>
                 </View>
-              </ScrollView>
+              </View>
 
-              <View style={[styles.footerDraft, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-                {isProcessing ? (
-                  <Animated.View style={[styles.processingContainer, pulseStyle]}>
-                    <ActivityIndicator color={PDF_RED} size="large" />
-                    <ThemedText style={styles.statusTextPremium}>{progressMsg || STATUS_MESSAGES[statusIdx]}</ThemedText>
-                  </Animated.View>
-                ) : (
-                  <TouchableOpacity 
-                    style={[styles.convertButtonPremium, (isPreparingDraft || isSelecting) && { opacity: 0.5 }]} 
-                    onPress={generatePdf}
-                    disabled={isPreparingDraft || isSelecting}
-                    activeOpacity={0.8}
-                  >
-                    <IconSymbol name="checkmark.circle.fill" size={22} color="#FFF" style={{ marginRight: 10 }} />
-                    <ThemedText style={styles.convertButtonText}>Generate PDF</ThemedText>
-                  </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalHeaderBtn, { backgroundColor: `${Brand.indigo}20` }]}
+                onPress={() => pickImages(true)}
+              >
+                <IconSymbol name="plus" size={18} color={Brand.indigo} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.draftScroll}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={[styles.nameInputCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: tc.border }]}>
+                <Text style={[styles.nameInputLabel, { color: tc.textSecondary }]}>DOCUMENT TITLE</Text>
+                <TextInput
+                  style={[styles.nameInput, { color: tc.text }]}
+                  value={pdfName}
+                  onChangeText={setPdfName}
+                  placeholder="Enter file name…"
+                  placeholderTextColor={tc.textSecondary}
+                />
+              </View>
+
+              <View style={styles.draftSectionRow}>
+                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>
+                  {isPreparingDraft ? 'LOADING…' : `PAGES (${selectedImages.length})`}
+                </Text>
+                {!isPreparingDraft && (
+                  <Text style={[styles.draftHint, { color: tc.textSecondary }]}>Hold to reorder</Text>
                 )}
               </View>
-            </ThemedView>
-          </GestureHandlerRootView>
-        </Modal>
 
-      </ThemedView>
+              <View style={styles.draftGrid}>
+                {isPreparingDraft
+                  ? [0,1,2,3].map(i => <SkeletonItem key={i} />)
+                  : selectedImages.map((uri, index) => (
+                    <DraggableItem
+                      key={uri} uri={uri} index={index}
+                      total={selectedImages.length}
+                      onSwap={swapImages} onRemove={removeImage}
+                      colorScheme={colorScheme}
+                    />
+                  ))
+                }
+              </View>
+            </ScrollView>
+
+            <View style={[styles.draftFooter, {
+              paddingBottom: Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 20),
+              backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+              borderTopColor: tc.border,
+              borderTopWidth: StyleSheet.hairlineWidth,
+            }]}>
+              {isProcessing ? (
+                <Animated.View style={[styles.processingRow, pulseStyle]}>
+                  <ActivityIndicator color={Brand.indigo} size="small" />
+                  <Text style={[styles.processingText, { color: tc.text }]}>
+                    {progressMsg || STATUS_MSGS[statusIdx]}
+                  </Text>
+                </Animated.View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.generateBtn, { backgroundColor: Brand.pdfRed }]}
+                  onPress={generatePdf}
+                  activeOpacity={0.85}
+                  disabled={selectedImages.length === 0}
+                >
+                  <IconSymbol name="doc.text.fill" size={20} color="#FFF" />
+                  <Text style={styles.generateBtnText}>Generate PDF</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </GestureHandlerRootView>
+      </Modal>
+
+      <Modal visible={showLibraryModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.root, { backgroundColor: tc.background }]}>
+          <View style={[styles.modalHeader, {
+            paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,
+            backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+            borderBottomColor: tc.border,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+          }]}>
+            <View style={{ width: 80 }} />
+            <Text style={[styles.modalTitle, { color: tc.text }]}>Library</Text>
+            <TouchableOpacity
+              style={[styles.modalHeaderBtn, { backgroundColor: isDark ? '#27272A' : '#F1F5F9', width: 80 }]}
+              onPress={() => setShowLibraryModal(false)}
+            >
+              <Text style={[styles.modalHeaderBtnText, { color: tc.textSecondary }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.searchRow, { backgroundColor: isDark ? '#27272A' : '#F1F5F9', marginHorizontal: 16, marginTop: 12 }]}>
+            <IconSymbol name="magnifyingglass" size={16} color={tc.textSecondary} />
+            <TextInput
+              style={[styles.searchInput, { color: tc.text }]}
+              value={libSearchQuery}
+              onChangeText={setLibSearchQuery}
+              placeholder="Search documents…"
+              placeholderTextColor={tc.textSecondary}
+              autoCorrect={false}
+            />
+            {libSearchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setLibSearchQuery('')}>
+                <View style={[styles.clearSearch, { backgroundColor: tc.textSecondary }]}>
+                  <Text style={styles.clearSearchX}>✕</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <FlatList
+            data={filteredPdfs}
+            keyExtractor={i => i.id}
+            renderItem={renderDoc}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 40 }}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.emptyBox}>
+                <Text style={[styles.emptyTitle, { color: tc.text }]}>No documents found</Text>
+                <Text style={[styles.emptySub, { color: tc.textSecondary }]}>
+                  {libSearchQuery ? 'Try a different search term.' : 'Create your first PDF from the home screen.'}
+                </Text>
+              </View>
+            }
+          />
+        </View>
+      </Modal>
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  selectionGuard: { 
-    zIndex: 99999, 
-    backgroundColor: '#F8F9FB', 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  root: { flex: 1 },
+  guardFull: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  guardBox: { alignItems: 'center', gap: 12 },
+  guardTitle: { fontSize: 17, fontWeight: '700', marginTop: 4 },
+  guardSub: { fontSize: 14, textAlign: 'center' },
+
+  mainList: { paddingHorizontal: 16, gap: 0 },
+
+  hero: {
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  guardContent: { alignItems: 'center' },
-  guardTitle: { marginTop: 24, fontSize: 16, fontWeight: '900', letterSpacing: 2, color: PDF_RED },
-  guardSubtitle: { marginTop: 8, fontSize: 13, opacity: 0.5, fontWeight: '600' },
-  hubContainer: { flexDirection: 'row', gap: 12, padding: GRID_PADDING, height: 160 },
-  hubButton: { flex: 1, borderRadius: 24, padding: 16, justifyContent: 'space-between', elevation: 8, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
-  primaryHub: { backgroundColor: '#007AFF' },
-  secondaryHub: { backgroundColor: PDF_RED },
-  hubIconCircle: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-  hubLabel: { color: '#FFF', fontWeight: '800', fontSize: 15 },
-  hubSubLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '600', marginTop: 1 },
-  sectionHeaderHome: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: GRID_PADDING, marginTop: 20, marginBottom: 10 },
-  titleRow: { flexDirection: 'row', alignItems: 'center' },
-  sectionTitle: { fontSize: 11, fontWeight: '900', opacity: 0.5, letterSpacing: 2.0 },
-  statSeparator: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.1)', marginHorizontal: 8 },
-  statCount: { fontSize: 9, fontWeight: '800', opacity: 0.3, letterSpacing: 1 },
-  seeMoreText: { fontSize: 11, fontWeight: '900', color: '#007AFF', opacity: 0.8 },
-  listContent: { padding: GRID_PADDING, paddingBottom: 120 },
-  pdfAssetCard: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    padding: 12, 
-    borderRadius: 22, 
-    marginBottom: 12, 
-    elevation: 3, 
-    shadowOpacity: 0.08, 
-    shadowRadius: 6, 
-    shadowOffset: { width: 0, height: 3 } 
+  heroContent: { alignItems: 'center', paddingVertical: 8 },
+  heroVisual: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  heroIconBox: { width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  heroArrowBox: { flexDirection: 'row', alignItems: 'center', width: 32 },
+  heroArrowLine: { flex: 1, height: 2, backgroundColor: '#CBD5E1' },
+  heroArrowHead: {
+    width: 0, height: 0,
+    borderTopWidth: 6, borderBottomWidth: 6,
+    borderLeftWidth: 10,
+    borderTopColor: 'transparent', borderBottomColor: 'transparent',
   },
-  ghostHistoryCard: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    padding: 16, 
-    borderRadius: 22, 
-    marginBottom: 12, 
-    borderWidth: 1.5, 
-    borderColor: 'rgba(0,122,255,0.2)', 
-    borderStyle: 'dashed' 
+  heroTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, textAlign: 'center' },
+  heroSub: { fontSize: 14, textAlign: 'center', lineHeight: 20, marginTop: 6, maxWidth: 280 },
+
+  ctaBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 15, borderRadius: 14,
+    shadowColor: Brand.indigo, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
-  ghostIconWrapper: { 
-    width: 50, 
-    height: 50, 
-    borderRadius: 12, 
-    backgroundColor: 'rgba(0,122,255,0.08)', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginRight: 16 
+  ctaBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
+  ctaBtnSecondary: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 13, borderRadius: 14, borderWidth: 1,
   },
-  ghostTitle: { fontSize: 13, fontWeight: '800', color: ACCENT_BLUE },
-  ghostSubtitle: { fontSize: 11, fontWeight: '600', opacity: 0.4, marginTop: 2 },
-  pdfAssetThumbnail: { 
-    width: 64, 
-    height: 64, 
-    borderRadius: 14, 
-    backgroundColor: PDF_RED, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginRight: 16, 
-    overflow: 'hidden',
-    borderWidth: 0.5,
-    borderColor: 'rgba(0,0,0,0.05)'
+  ctaBtnSecondaryText: { fontSize: 15, fontWeight: '600' },
+  countBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20, marginLeft: 4 },
+  countBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+
+  sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 4 },
+  sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
+  seeAll: { fontSize: 13, fontWeight: '700' },
+
+  docCard: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: 14, marginBottom: 8,
+    padding: 12, gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  pdfRibbon: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: PDF_RED,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderBottomLeftRadius: 6,
-    zIndex: 10
+  docThumbBox: { width: 48, height: 56, borderRadius: 10, overflow: 'hidden', backgroundColor: '#F1F5F9' },
+  pdfBadgeSmall: {
+    position: 'absolute', bottom: 3, right: 3,
+    backgroundColor: Brand.pdfRed, borderRadius: 3,
+    paddingHorizontal: 4, paddingVertical: 1,
   },
-  pdfRibbonText: { color: '#FFF', fontSize: 7, fontWeight: '900', letterSpacing: 0.5 },
-  pdfIcon3D: { shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 3, shadowOffset: { width: 0, height: 2 } },
-  thumbnailGloss: { position: 'absolute', top: 0, left: 0, right: 0, height: '35%', backgroundColor: 'rgba(255,255,255,0.18)' },
-  pdfAssetDetails: { flex: 1 },
-  assetNameRow: { flexDirection: 'row', alignItems: 'center' },
-  assetName: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2, opacity: 0.85 },
-  assetRenameInput: { fontSize: 13, fontWeight: '800', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8, backgroundColor: 'rgba(229,57,53,0.05)', borderWidth: 1.5, borderColor: PDF_RED },
-  assetMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  assetMetaText: { fontSize: 10, fontWeight: '700', color: '#007AFF', opacity: 0.5 },
-  assetMetaTextMono: { fontSize: 10, fontWeight: '900', color: PDF_RED, opacity: 0.7, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
-  metaDot: { width: 2.5, height: 2.5, borderRadius: 1.25, backgroundColor: 'rgba(0,0,0,0.08)', marginHorizontal: 6 },
-  assetMenuBtn: { padding: 8 },
-  contextMenuOverlay: { flex: 1 },
-  desktopMenu: { position: 'absolute', width: 180, borderRadius: 12, padding: 4, elevation: 15, shadowOpacity: 0.15, shadowRadius: 10 },
-  desktopMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8 },
-  desktopMenuText: { marginLeft: 10, fontSize: 13, fontWeight: '600' },
-  menuDivider: { height: 1, backgroundColor: 'rgba(0,0,0,0.05)', marginVertical: 4 },
-  emptyState: { alignItems: 'center', marginTop: 50, opacity: 0.3 },
-  emptyText: { marginTop: 12, textAlign: 'center', fontSize: 14, fontWeight: '500' },
-  archiveHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15 },
-  archiveBackButton: { width: 72, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', elevation: 2, shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
-  archiveTitle: { fontSize: 14, fontWeight: '900', opacity: 0.9, letterSpacing: 1 },
-  discardText: { color: '#FF3B30', fontSize: 14, fontWeight: '900' },
-  draftHeadingText: { fontSize: 14, fontWeight: '900', color: '#000', letterSpacing: 1.2 },
-  draftContent: { padding: GRID_PADDING, paddingBottom: 150 },
-  premiumInputWrapper: { marginBottom: 24 },
-  vibrantLabel: { fontSize: 10, fontWeight: '900', marginBottom: 10, letterSpacing: 1.5, opacity: 0.9 },
-  draftInput: { height: 64, borderRadius: 18, fontSize: 18, paddingHorizontal: 20, fontWeight: '800', elevation: 4, shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, borderWidth: 1.5, borderColor: 'rgba(0,122,255,0.1)' },
-  sectionHeaderDraft: { marginTop: 8, marginBottom: 16 },
-  orderInstruction: { fontSize: 12, opacity: 0.4, fontWeight: '600', marginTop: -6, fontStyle: 'italic' },
-  imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
-  imageCardContainer: { width: ITEM_WIDTH },
-  imageCard: { aspectRatio: 1, borderRadius: 20, overflow: 'hidden', backgroundColor: '#FFF', elevation: 6, shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
-  skeletonBox: { backgroundColor: 'rgba(0,0,0,0.05)', borderColor: 'rgba(0,0,0,0.05)', borderWidth: 1 },
-  previewThumbnail: { width: '100%', height: '100%' },
-  removeImageBtn: { position: 'absolute', top: 8, right: 8, zIndex: 20 },
-  removeIconCircle: { backgroundColor: 'rgba(255,59,48,0.9)', width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  orderRibbon: { position: 'absolute', bottom: 0, left: 0, backgroundColor: PDF_RED, paddingHorizontal: 10, paddingVertical: 5, borderTopRightRadius: 12, zIndex: 10 },
-  orderRibbonText: { color: '#FFF', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
-  footerDraft: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 24, backgroundColor: 'rgba(255,255,255,0.96)', borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
-  convertButtonPremium: { height: 68, borderRadius: 24, backgroundColor: PDF_RED, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', elevation: 12, shadowColor: PDF_RED, shadowOpacity: 0.3, shadowRadius: 15 },
-  convertButtonText: { color: '#FFF', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 },
-  processingContainer: { alignItems: 'center', justifyContent: 'center' },
-  statusTextPremium: { marginTop: 12, fontSize: 14, fontWeight: '800', color: PDF_RED, opacity: 0.9, textAlign: 'center' },
-  premiumSearchContainer: { paddingHorizontal: GRID_PADDING, paddingBottom: 20 },
-  searchInner: { flexDirection: 'row', alignItems: 'center', height: 58, borderRadius: 18, paddingHorizontal: 18, elevation: 4, borderWidth: 1.5 },
-  searchInput: { flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600' },
-  clearSearchIcon: { backgroundColor: '#8E8E93', width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pdfBadgeSmallText: { color: '#FFF', fontSize: 7, fontWeight: '900' },
+  docInfo: { flex: 1, gap: 4 },
+  docName: { fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
+  docMeta: { fontSize: 12, fontWeight: '500' },
+  docMenuBtn: { padding: 8 },
+  renameInput: { fontSize: 14, fontWeight: '700', borderBottomWidth: 2, paddingVertical: 2 },
+
+  emptyBox: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyIcon: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  emptyTitle: { fontSize: 16, fontWeight: '700' },
+  emptySub: { fontSize: 13, textAlign: 'center', maxWidth: 240, lineHeight: 18 },
+
+  ctxMenu: {
+    position: 'absolute', width: 180, borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15, shadowRadius: 16, elevation: 10, overflow: 'hidden',
+  },
+  ctxItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 13 },
+  ctxLabel: { fontSize: 14, fontWeight: '600' },
+
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 14,
+  },
+  modalHeaderBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  modalHeaderBtnText: { fontSize: 14, fontWeight: '600' },
+  modalTitleBlock: { alignItems: 'center', gap: 4 },
+  modalTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  pagePill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
+  pagePillText: { fontSize: 11, fontWeight: '700' },
+
+  draftScroll: { padding: 16, gap: 16, paddingBottom: 0 },
+  nameInputCard: {
+    borderRadius: 14, padding: 14, borderWidth: 1, gap: 6,
+  },
+  nameInputLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  nameInput: { fontSize: 16, fontWeight: '700', paddingVertical: 2 },
+  draftSectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  draftHint: { fontSize: 11, fontWeight: '500' },
+  draftGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingTop: 8 },
+  draftCardWrap: { width: ITEM_W },
+  draftCard: {
+    width: ITEM_W, height: ITEM_W * 1.3, borderRadius: 12, overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3,
+  },
+  skeleton: { backgroundColor: '#CBD5E1' },
+  draftThumb: { width: '100%', height: '100%' },
+  draftRemoveBtn: { position: 'absolute', top: 6, right: 6 },
+  draftRemoveCircle: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center',
+  },
+  draftRemoveX: { color: '#FFF', fontSize: 10, fontWeight: '900' },
+  pageTag: {
+    position: 'absolute', bottom: 6, left: 6,
+    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  pageTagText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+
+  draftFooter: { padding: 16, paddingTop: 12 },
+  processingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14 },
+  processingText: { fontSize: 14, fontWeight: '600' },
+  generateBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 15, borderRadius: 14,
+    shadowColor: Brand.pdfRed, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
+  },
+  generateBtnText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginBottom: 0,
+  },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+  clearSearch: { width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: 0.5 },
+  clearSearchX: { color: '#FFF', fontSize: 9, fontWeight: '900' },
 });

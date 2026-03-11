@@ -1,29 +1,41 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- */
-
 import { Platform } from 'react-native';
-
-const tintColorLight = '#007AFF';
-const tintColorDark = '#FFFFFF';
 
 export const Colors = {
   light: {
-    text: '#1C1C1E',
-    background: '#F8F9FB', // Soft professional gray
-    tint: tintColorLight,
-    icon: '#8E8E93',
-    tabIconDefault: '#8E8E93',
-    tabIconSelected: tintColorLight,
+    text: '#0F172A',
+    textSecondary: '#64748B',
+    background: '#F1F5F9',
+    surface: '#FFFFFF',
+    surfaceElevated: '#FFFFFF',
+    border: '#E2E8F0',
+    tint: '#6366F1',
+    icon: '#64748B',
+    tabIconDefault: '#94A3B8',
+    tabIconSelected: '#6366F1',
   },
   dark: {
-    text: '#FFFFFF',
-    background: '#0D0D0E', // Deep onyx
-    tint: tintColorDark,
-    icon: '#636366',
-    tabIconDefault: '#636366',
-    tabIconSelected: tintColorDark,
+    text: '#F8FAFC',
+    textSecondary: '#94A3B8',
+    background: '#09090B',
+    surface: '#18181B',
+    surfaceElevated: '#27272A',
+    border: '#27272A',
+    tint: '#818CF8',
+    icon: '#94A3B8',
+    tabIconDefault: '#52525B',
+    tabIconSelected: '#818CF8',
   },
+};
+
+export const Brand = {
+  indigo: '#6366F1',
+  indigoDark: '#4F46E5',
+  indigoLight: '#818CF8',
+  pdfRed: '#EF4444',
+  pdfRedDark: '#DC2626',
+  amber: '#F59E0B',
+  emerald: '#10B981',
+  rose: '#F43F5E',
 };
 
 export const Fonts = Platform.select({
