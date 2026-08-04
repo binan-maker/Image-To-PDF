@@ -140,6 +140,10 @@ export default function HomeScreen() {
   const [pdfName, setPdfName] = useState('');
   const [statusIdx, setStatusIdx] = useState(0);
   const [progressMsg, setProgressMsg] = useState('');
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [pageSize, setPageSize] = useState<'a4' | 'letter' | 'fit'>('a4');
+  const [margin, setMargin] = useState<'none' | 'small' | 'large'>('small');
+  const [mergeAll, setMergeAll] = useState(true);
   const [libSearchQuery, setLibSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -230,38 +234,74 @@ export default function HomeScreen() {
     } catch { setIsSelecting(false); Alert.alert('Error', 'Could not load images.'); }
   };
 
+  const buildPdfHtml = (b64Images: string[]) => {
+    let sizeStr: string;
+    if (pageSize === 'a4') {
+      sizeStr = orientation === 'portrait' ? '210mm 297mm' : '297mm 210mm';
+    } else if (pageSize === 'letter') {
+      sizeStr = orientation === 'portrait' ? '215.9mm 279.4mm' : '279.4mm 215.9mm';
+    } else {
+      sizeStr = 'auto';
+    }
+    const marginStr = margin === 'none' ? '0' : margin === 'small' ? '8mm' : '20mm';
+    const pageStyle = pageSize === 'fit'
+      ? 'width:100%;display:block;page-break-after:always;text-align:center'
+      : 'width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;page-break-after:always;overflow:hidden';
+    const imgStyle = pageSize === 'fit'
+      ? 'max-width:100%;height:auto;display:block;margin:0 auto'
+      : 'max-width:96%;max-height:96%;object-fit:contain';
+    const pages = b64Images.map(b64 => `<div class="page"><img src="data:image/jpeg;base64,${b64}" /></div>`).join('');
+    return `<!DOCTYPE html><html><head><style>
+      @page{size:${sizeStr};margin:${marginStr}}
+      body{margin:0;padding:0;background:#fff}
+      .page{${pageStyle}}
+      img{${imgStyle}}
+    </style></head><body>${pages}</body></html>`;
+  };
+
   const generatePdf = async () => {
     if (selectedImages.length === 0) {
       Alert.alert('No Images', 'Add at least one image.'); return;
     }
     setIsProcessing(true);
-    const tempUris: string[] = [];
+    const dir = FileSystem.documentDirectory;
+    if (!dir) { setIsProcessing(false); return; }
+    const baseName = (pdfName.trim() || `Doc_${Date.now()}`).replace(/[^a-z0-9._-]/gi, '_');
+
     try {
-      let html = '';
-      for (let i = 0; i < selectedImages.length; i++) {
-        setProgressMsg(`Optimising ${i + 1} of ${selectedImages.length}…`);
-        const r = await ImageManipulator.manipulateAsync(
-          selectedImages[i], [{ resize: { width: 750 } }],
-          { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-        );
-        html += `<div class="page"><img src="data:image/jpeg;base64,${r.base64}" /></div>`;
-        if (i === 0) tempUris.push(r.uri);
-        if (i % 15 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
+      if (mergeAll) {
+        const b64Images: string[] = [];
+        let firstThumbUri = '';
+        for (let i = 0; i < selectedImages.length; i++) {
+          setProgressMsg(`Optimising ${i + 1} of ${selectedImages.length}…`);
+          const r = await ImageManipulator.manipulateAsync(
+            selectedImages[i], [{ resize: { width: 750 } }],
+            { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+          );
+          b64Images.push(r.base64 ?? '');
+          if (i === 0) firstThumbUri = r.uri;
+          if (i % 15 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
+        }
+        setProgressMsg('Building PDF…');
+        const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml(b64Images) });
+        const dest = `${dir}${baseName}.pdf`;
+        await FileSystem.copyAsync({ from: tmp, to: dest });
+        if (firstThumbUri) await FileSystem.copyAsync({ from: firstThumbUri, to: dest.replace('.pdf', '.jpg') });
+      } else {
+        for (let i = 0; i < selectedImages.length; i++) {
+          setProgressMsg(`Creating PDF ${i + 1} of ${selectedImages.length}…`);
+          const r = await ImageManipulator.manipulateAsync(
+            selectedImages[i], [{ resize: { width: 750 } }],
+            { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+          );
+          const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml([r.base64 ?? '']) });
+          const suffix = selectedImages.length > 1 ? `_${i + 1}` : '';
+          const dest = `${dir}${baseName}${suffix}.pdf`;
+          await FileSystem.copyAsync({ from: tmp, to: dest });
+          await FileSystem.copyAsync({ from: r.uri, to: dest.replace('.pdf', '.jpg') });
+          if (i % 10 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
+        }
       }
-      setProgressMsg('Building PDF…');
-      const fullHtml = `<!DOCTYPE html><html><head><style>
-        @page{size:A4;margin:0}body{margin:0;padding:0;background:#fff}
-        .page{width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;page-break-after:always;overflow:hidden}
-        img{max-width:96%;max-height:96%;object-fit:contain}
-      </style></head><body>${html}</body></html>`;
-      const { uri: tmp } = await Print.printToFileAsync({ html: fullHtml });
-      const dir = FileSystem.documentDirectory;
-      if (!dir) throw new Error('No storage');
-      const base = (pdfName.trim() || `Doc_${Date.now()}`).replace(/[^a-z0-9._-]/gi, '_');
-      const dest = `${dir}${base}.pdf`;
-      const thumbDest = dest.replace('.pdf', '.jpg');
-      await FileSystem.copyAsync({ from: tmp, to: dest });
-      if (tempUris.length > 0) await FileSystem.copyAsync({ from: tempUris[0], to: thumbDest });
       await loadLibrary(false);
       setShowDraftModal(false);
       setSelectedImages([]);
@@ -604,6 +644,91 @@ export default function HomeScreen() {
                 />
               </View>
 
+              {/* PDF Settings Card */}
+              <View style={[styles.settingsCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
+                <Text style={[styles.nameInputLabel, { color: tc.textSecondary, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 4 }]}>PDF Settings</Text>
+
+                {/* Orientation */}
+                <View style={styles.settingRow}>
+                  <Text style={[styles.settingTitle, { color: tc.text }]}>Orientation</Text>
+                  <View style={styles.chipRow}>
+                    {(['portrait', 'landscape'] as const).map(v => (
+                      <TouchableOpacity
+                        key={v}
+                        style={[styles.chip, { backgroundColor: orientation === v ? Brand.indigo : (isDark ? '#27272A' : '#F4F4F5') }]}
+                        onPress={() => setOrientation(v)}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={[styles.chipText, { color: orientation === v ? '#FFF' : tc.textSecondary }]}>
+                          {v === 'portrait' ? 'Portrait' : 'Landscape'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={[styles.settingDivider, { backgroundColor: isDark ? '#3F3F46' : '#E4E4E7' }]} />
+
+                {/* Page Size */}
+                <View style={styles.settingRow}>
+                  <Text style={[styles.settingTitle, { color: tc.text }]}>Page Size</Text>
+                  <View style={styles.chipRow}>
+                    {(['a4', 'letter', 'fit'] as const).map(v => (
+                      <TouchableOpacity
+                        key={v}
+                        style={[styles.chip, { backgroundColor: pageSize === v ? Brand.indigo : (isDark ? '#27272A' : '#F4F4F5') }]}
+                        onPress={() => setPageSize(v)}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={[styles.chipText, { color: pageSize === v ? '#FFF' : tc.textSecondary }]}>
+                          {v === 'a4' ? 'A4' : v === 'letter' ? 'US Letter' : 'Fit'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={[styles.settingDivider, { backgroundColor: isDark ? '#3F3F46' : '#E4E4E7' }]} />
+
+                {/* Margin */}
+                <View style={styles.settingRow}>
+                  <Text style={[styles.settingTitle, { color: tc.text }]}>Margin</Text>
+                  <View style={styles.chipRow}>
+                    {(['none', 'small', 'large'] as const).map(v => (
+                      <TouchableOpacity
+                        key={v}
+                        style={[styles.chip, { backgroundColor: margin === v ? Brand.indigo : (isDark ? '#27272A' : '#F4F4F5') }]}
+                        onPress={() => setMargin(v)}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={[styles.chipText, { color: margin === v ? '#FFF' : tc.textSecondary }]}>
+                          {v === 'none' ? 'None' : v === 'small' ? 'Small' : 'Large'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={[styles.settingDivider, { backgroundColor: isDark ? '#3F3F46' : '#E4E4E7' }]} />
+
+                {/* Merge toggle */}
+                <View style={[styles.settingRow, { alignItems: 'center', paddingBottom: 14 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingTitle, { color: tc.text }]}>Merge into one PDF</Text>
+                    <Text style={[styles.settingDesc, { color: tc.textSecondary }]}>
+                      {mergeAll ? 'All images in a single file' : 'One PDF per image'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.toggle, { backgroundColor: mergeAll ? Brand.indigo : (isDark ? '#3F3F46' : '#D1D5DB') }]}
+                    onPress={() => setMergeAll(v => !v)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={[styles.toggleThumb, { transform: [{ translateX: mergeAll ? 22 : 2 }] }]} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <View style={styles.draftSectionRow}>
                 <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>Pages ({selectedImages.length})</Text>
                 <Text style={[styles.draftHint, { color: tc.textSecondary }]}>Hold to reorder</Text>
@@ -926,4 +1051,33 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, fontWeight: '400' },
   clearSearch: { width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: 0.4 },
   clearSearchX: { color: '#FFF', fontSize: 9, fontWeight: '900' },
+
+  settingsCard: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  settingRow: {
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 2,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  settingDivider: { height: StyleSheet.hairlineWidth, marginLeft: 14 },
+  settingTitle: { fontSize: 15, fontWeight: '500', paddingTop: 3 },
+  settingDesc: { fontSize: 12, fontWeight: '400', marginTop: 2 },
+  chipRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 },
+  chip: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 8 },
+  chipText: { fontSize: 13, fontWeight: '500' },
+  toggle: {
+    width: 46, height: 26, borderRadius: 13, justifyContent: 'center',
+  },
+  toggleThumb: {
+    width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2, shadowRadius: 2, elevation: 2,
+  },
 });
