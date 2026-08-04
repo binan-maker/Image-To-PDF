@@ -143,7 +143,6 @@ export default function HomeScreen() {
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [pageSize, setPageSize] = useState<'a4' | 'letter' | 'fit'>('a4');
   const [margin, setMargin] = useState<'none' | 'small' | 'large'>('small');
-  const [mergeAll, setMergeAll] = useState(true);
   const [libSearchQuery, setLibSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -236,35 +235,60 @@ export default function HomeScreen() {
     } catch { setIsSelecting(false); Alert.alert('Error', 'Could not load images.'); }
   };
 
-  // expo-print ignores CSS @page size — dimensions and margins must be passed
-  // as printToFileAsync params (points: 1mm = 2.8346pt).
-  const buildPdfHtml = (b64Images: string[]) => {
-    const pages = b64Images
-      .map(b64 => `<div class="page"><img src="data:image/jpeg;base64,${b64}" /></div>`)
-      .join('');
-    return `<!DOCTYPE html><html><head><style>
-      *{box-sizing:border-box}
-      body{margin:0;padding:0;background:#fff}
-      .page{width:100%;display:flex;justify-content:center;align-items:center;page-break-after:always;min-height:98vh}
-      img{max-width:100%;max-height:98vh;object-fit:contain;display:block}
-    </style></head><body>${pages}</body></html>`;
+  // Build page dimensions from current settings.
+  // Returns mm values (for CSS @page) and pt values (for native printToFileAsync).
+  const getPageParams = (imgW: number, imgH: number) => {
+    const MM_TO_PT = 2.8346; // 1 mm in points
+    const PX_TO_MM = 25.4 / 72; // treat image pixels as 72 dpi → mm
+
+    let wMm: number, hMm: number;
+    if (pageSize === 'a4') {
+      wMm = 210; hMm = 297;
+    } else if (pageSize === 'letter') {
+      wMm = 215.9; hMm = 279.4;
+    } else {
+      // Fit: match the image's natural proportions
+      wMm = imgW * PX_TO_MM;
+      hMm = imgH * PX_TO_MM;
+    }
+    if (orientation === 'landscape' && pageSize !== 'fit') [wMm, hMm] = [hMm, wMm];
+
+    const mMm = margin === 'none' ? 0 : margin === 'small' ? 8 : 20;
+    const mPt = Math.round(mMm * MM_TO_PT);
+    return {
+      wMm, hMm, mMm,
+      width: Math.round(wMm * MM_TO_PT),
+      height: Math.round(hMm * MM_TO_PT),
+      margins: { top: mPt, right: mPt, bottom: mPt, left: mPt },
+    };
   };
 
-  // Returns width, height (in pt) and margins (in pt) for printToFileAsync.
-  const getPrintParams = (imgW: number, imgH: number) => {
-    const MM = 2.8346; // 1 mm in points
-    let w: number, h: number;
-    if (pageSize === 'a4') {
-      w = Math.round(210 * MM); h = Math.round(297 * MM); // 595 × 842
-    } else if (pageSize === 'letter') {
-      w = Math.round(215.9 * MM); h = Math.round(279.4 * MM); // 612 × 792
-    } else {
-      // Fit: use the actual image pixel dimensions
-      w = imgW; h = imgH;
-    }
-    if (orientation === 'landscape' && pageSize !== 'fit') [w, h] = [h, w];
-    const mPt = margin === 'none' ? 0 : margin === 'small' ? Math.round(8 * MM) : Math.round(20 * MM);
-    return { width: w, height: h, margins: { top: mPt, right: mPt, bottom: mPt, left: mPt } };
+  // Build HTML with embedded @page CSS so web browsers respect page size, orientation, and margins.
+  // Native printToFileAsync also gets the same values via its params (see generatePdf).
+  const buildPdfHtml = (b64Images: string[], wMm: number, hMm: number, mMm: number) => {
+    const cw = Math.max(1, wMm - mMm * 2).toFixed(2);
+    const ch = Math.max(1, hMm - mMm * 2).toFixed(2);
+    const w = wMm.toFixed(2);
+    const h = hMm.toFixed(2);
+    const m = mMm.toFixed(2);
+    const pages = b64Images
+      .map(b64 => `<div class="page"><img src="data:image/jpeg;base64,${b64}"/></div>`)
+      .join('');
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+      @page{size:${w}mm ${h}mm;margin:${m}mm}
+      *{box-sizing:border-box;margin:0;padding:0}
+      html,body{background:#fff}
+      .page{
+        width:${w}mm;height:${h}mm;
+        display:flex;justify-content:center;align-items:center;
+        page-break-after:always;page-break-inside:avoid;
+        padding:${m}mm;overflow:hidden;
+      }
+      img{
+        max-width:${cw}mm;max-height:${ch}mm;
+        width:auto;height:auto;object-fit:contain;display:block;
+      }
+    </style></head><body>${pages}</body></html>`;
   };
 
   const generatePdf = async () => {
@@ -281,44 +305,36 @@ export default function HomeScreen() {
     const baseName = (pdfName.trim() || `Doc_${Date.now()}`).replace(/[^a-z0-9._-]/gi, '_');
 
     try {
-      if (mergeAll) {
-        const b64Images: string[] = [];
-        let printParams = { width: 595, height: 842, margins: { top: 0, right: 0, bottom: 0, left: 0 } };
-        let firstThumbUri = '';
-        for (let i = 0; i < selectedImages.length; i++) {
-          setProgressMsg(`Optimising ${i + 1} of ${selectedImages.length}…`);
-          const r = await ImageManipulator.manipulateAsync(
-            selectedImages[i], [{ resize: { width: 750 } }],
-            { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-          );
-          b64Images.push(r.base64 ?? '');
-          if (i === 0) {
-            firstThumbUri = r.uri;
-            printParams = getPrintParams(r.width, r.height);
-          }
-          if (i % 15 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
+      const b64Images: string[] = [];
+      let params = { wMm: 210, hMm: 297, mMm: 8, width: 595, height: 842, margins: { top: 23, right: 23, bottom: 23, left: 23 } };
+      let firstThumbUri = '';
+
+      for (let i = 0; i < selectedImages.length; i++) {
+        setProgressMsg(`Optimising ${i + 1} of ${selectedImages.length}…`);
+        const r = await ImageManipulator.manipulateAsync(
+          selectedImages[i], [{ resize: { width: 750 } }],
+          { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        b64Images.push(r.base64 ?? '');
+        if (i === 0) {
+          firstThumbUri = r.uri;
+          params = getPageParams(r.width, r.height);
         }
-        setProgressMsg('Building PDF…');
-        const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml(b64Images), ...printParams });
-        const dest = `${dir}${baseName}.pdf`;
-        await FileSystem.copyAsync({ from: tmp, to: dest });
-        if (firstThumbUri) await FileSystem.copyAsync({ from: firstThumbUri, to: dest.replace('.pdf', '.jpg') });
-      } else {
-        for (let i = 0; i < selectedImages.length; i++) {
-          setProgressMsg(`Creating PDF ${i + 1} of ${selectedImages.length}…`);
-          const r = await ImageManipulator.manipulateAsync(
-            selectedImages[i], [{ resize: { width: 750 } }],
-            { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-          );
-          const printParams = getPrintParams(r.width, r.height);
-          const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml([r.base64 ?? '']), ...printParams });
-          const suffix = selectedImages.length > 1 ? `_${i + 1}` : '';
-          const dest = `${dir}${baseName}${suffix}.pdf`;
-          await FileSystem.copyAsync({ from: tmp, to: dest });
-          await FileSystem.copyAsync({ from: r.uri, to: dest.replace('.pdf', '.jpg') });
-          if (i % 10 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
-        }
+        if (i % 15 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
       }
+
+      setProgressMsg('Building PDF…');
+      const html = buildPdfHtml(b64Images, params.wMm, params.hMm, params.mMm);
+      const { uri: tmp } = await Print.printToFileAsync({
+        html,
+        width: params.width,
+        height: params.height,
+        margins: params.margins,
+      });
+      const dest = `${dir}${baseName}.pdf`;
+      await FileSystem.copyAsync({ from: tmp, to: dest });
+      if (firstThumbUri) await FileSystem.copyAsync({ from: firstThumbUri, to: dest.replace('.pdf', '.jpg') });
+
       await loadLibrary(false);
       setShowDraftModal(false);
       setSelectedImages([]);
@@ -745,24 +761,6 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                <View style={[styles.settingDivider, { backgroundColor: isDark ? '#3F3F46' : '#E4E4E7' }]} />
-
-                {/* Merge toggle */}
-                <View style={[styles.settingRow, { alignItems: 'center', paddingBottom: 14 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.settingTitle, { color: tc.text }]}>Merge into one PDF</Text>
-                    <Text style={[styles.settingDesc, { color: tc.textSecondary }]}>
-                      {mergeAll ? 'All images in a single file' : 'One PDF per image'}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.toggle, { backgroundColor: mergeAll ? Brand.indigo : (isDark ? '#3F3F46' : '#D1D5DB') }]}
-                    onPress={() => setMergeAll(v => !v)}
-                    activeOpacity={0.85}
-                  >
-                    <View style={[styles.toggleThumb, { transform: [{ translateX: mergeAll ? 22 : 2 }] }]} />
-                  </TouchableOpacity>
-                </View>
               </View>
 
               <View style={styles.draftSectionRow}>
