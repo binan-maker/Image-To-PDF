@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -30,6 +31,10 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  LinearTransition,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -37,6 +42,7 @@ import Animated, {
   withSequence,
   withSpring,
   withTiming,
+  ZoomIn,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -64,18 +70,27 @@ const STATUS_MSGS = [
   'Compressing images…',
   'Building pages…',
   'Stitching document…',
-  'Finalising PDF…',
+  'Finalizing PDF…',
   'Almost done…',
 ];
 
-const DraggableItem = memo(function DraggableItem({
+const SkeletonItem = () => {
+  const opacity = useSharedValue(0.25);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(0.55, { duration: 900 }), -1, true);
+  }, []);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View style={[styles.draftCard, styles.skeleton, style]} />;
+};
+
+const DraggableItem = memo(({
   uri, index, total, onSwap, onRemove, colorScheme,
 }: {
   uri: string; index: number; total: number;
   onSwap: (f: number, t: number) => void;
   onRemove: (i: number) => void;
   colorScheme: 'light' | 'dark';
-}) {
+}) => {
   const isDragging = useSharedValue(false);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -106,7 +121,11 @@ const DraggableItem = memo(function DraggableItem({
 
   return (
     <GestureDetector gesture={drag}>
-      <Animated.View style={[styles.draftCardWrap, animStyle]}>
+      <Animated.View
+        entering={FadeIn.duration(250)}
+        layout={LinearTransition.springify()}
+        style={[styles.draftCardWrap, animStyle]}
+      >
         <View style={[styles.draftCard, { backgroundColor: colorScheme === 'dark' ? '#27272A' : '#F8FAFC' }]}>
           <Image source={{ uri }} style={styles.draftThumb} contentFit="cover" cachePolicy="memory-disk" />
           <TouchableOpacity style={styles.draftRemoveBtn} onPress={() => onRemove(index)}>
@@ -134,6 +153,7 @@ export default function HomeScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPreparingDraft, setIsPreparingDraft] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
@@ -219,15 +239,18 @@ export default function HomeScreen() {
         mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.7,
       });
       if (result.canceled) { setIsSelecting(false); return; }
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (!appending) setPdfName(`PDF_${Math.floor(100000 + Math.random() * 900000)}`);
       const uris = result.assets.map(a => a.uri);
       setShowDraftModal(true);
+      setIsPreparingDraft(true);
       setTimeout(() => {
         if (appending) setSelectedImages(prev => [...prev, ...uris]);
         else setSelectedImages(uris);
+        setIsPreparingDraft(false);
         setIsSelecting(false);
-      }, 300);
-    } catch { setIsSelecting(false); Alert.alert('Error', 'Could not load images.'); }
+      }, 700);
+    } catch { setIsSelecting(false); setIsPreparingDraft(false); Alert.alert('Error', 'Could not load images.'); }
   };
 
   const generatePdf = async () => {
@@ -239,7 +262,7 @@ export default function HomeScreen() {
     try {
       let html = '';
       for (let i = 0; i < selectedImages.length; i++) {
-        setProgressMsg(`Optimising ${i + 1} of ${selectedImages.length}…`);
+        setProgressMsg(`Optimizing ${i + 1} of ${selectedImages.length}…`);
         const r = await ImageManipulator.manipulateAsync(
           selectedImages[i], [{ resize: { width: 750 } }],
           { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
@@ -320,23 +343,25 @@ export default function HomeScreen() {
     return pdfs.filter(p => p.name.toLowerCase().includes(libSearchQuery.toLowerCase()));
   }, [pdfs, libSearchQuery]);
 
-  const renderDoc: ListRenderItem<PdfDoc> = useCallback(({ item }) => {
+  const renderDoc: ListRenderItem<PdfDoc> = useCallback(({ item, index }) => {
     if (item.isGhost) {
       return (
-        <TouchableOpacity
-          style={[styles.docCard, { backgroundColor: tc.surface }]}
-          onPress={() => setShowLibraryModal(true)}
-          activeOpacity={0.75}
-        >
-          <View style={[styles.docThumbBox, { backgroundColor: `${Brand.indigo}12` }]}>
-            <IconSymbol name="photo.on.rectangle.angled" size={20} color={Brand.indigo} />
-          </View>
-          <View style={styles.docInfo}>
-            <Text style={[styles.docName, { color: Brand.indigo }]}>View all documents</Text>
-            <Text style={[styles.docMeta, { color: tc.textSecondary }]}>{pdfs.length - 5} more</Text>
-          </View>
-          <IconSymbol name="chevron.right" size={14} color={tc.textSecondary} style={{ opacity: 0.4 }} />
-        </TouchableOpacity>
+        <Animated.View entering={FadeInDown.delay(index * 40)} layout={LinearTransition}>
+          <TouchableOpacity
+            style={[styles.docCard, { backgroundColor: tc.surface }]}
+            onPress={() => setShowLibraryModal(true)}
+            activeOpacity={0.75}
+          >
+            <View style={[styles.docThumbBox, { backgroundColor: `${Brand.indigo}15` }]}>
+              <IconSymbol name="photo.on.rectangle.angled" size={22} color={Brand.indigo} />
+            </View>
+            <View style={styles.docInfo}>
+              <Text style={[styles.docName, { color: Brand.indigo }]}>View full library</Text>
+              <Text style={[styles.docMeta, { color: tc.textSecondary }]}>+{pdfs.length - 5} more documents</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={16} color={Brand.indigo} />
+          </TouchableOpacity>
+        </Animated.View>
       );
     }
 
@@ -344,56 +369,64 @@ export default function HomeScreen() {
     const name = item.name.replace(/\.pdf$/i, '');
 
     return (
-      <TouchableOpacity
-        style={[styles.docCard, { backgroundColor: tc.surface }]}
-        onPress={() => !isEditing && openPdf(item.uri)}
-        activeOpacity={isEditing ? 1 : 0.75}
-      >
-        <View style={styles.docThumbBox}>
-          {item.thumbnailUri ? (
-            <Image source={{ uri: item.thumbnailUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: `${Brand.pdfRed}12`, alignItems: 'center', justifyContent: 'center' }]}>
-              <IconSymbol name="doc.text.fill" size={20} color={Brand.pdfRed} />
+      <Animated.View entering={FadeInDown.delay(index * 40)} layout={LinearTransition}>
+        <TouchableOpacity
+          style={[styles.docCard, { backgroundColor: tc.surface }]}
+          onPress={() => !isEditing && openPdf(item.uri)}
+          activeOpacity={isEditing ? 1 : 0.75}
+        >
+          <View style={styles.docThumbBox}>
+            {item.thumbnailUri ? (
+              <Image source={{ uri: item.thumbnailUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: `${Brand.pdfRed}15`, alignItems: 'center', justifyContent: 'center' }]}>
+                <IconSymbol name="doc.text.fill" size={22} color={Brand.pdfRed} />
+              </View>
+            )}
+            <View style={styles.pdfBadgeSmall}>
+              <Text style={styles.pdfBadgeSmallText}>PDF</Text>
             </View>
-          )}
-          <View style={styles.pdfBadgeSmall}>
-            <Text style={styles.pdfBadgeSmallText}>PDF</Text>
           </View>
-        </View>
 
-        <View style={styles.docInfo}>
-          {isEditing ? (
-            <TextInput
-              style={[styles.renameInput, { color: tc.text, borderColor: Brand.indigo }]}
-              value={editingValue}
-              onChangeText={setEditingValue}
-              autoFocus
-              selectTextOnFocus
-              onSubmitEditing={() => Keyboard.dismiss()}
-              onBlur={() => saveRename(item)}
-              returnKeyType="done"
-            />
-          ) : (
-            <Text style={[styles.docName, { color: tc.text }]} numberOfLines={1}>{name}</Text>
+          <View style={styles.docInfo}>
+            {isEditing ? (
+              <TextInput
+                style={[styles.renameInput, { color: tc.text, borderColor: Brand.indigo }]}
+                value={editingValue}
+                onChangeText={setEditingValue}
+                autoFocus
+                selectTextOnFocus
+                onSubmitEditing={() => Keyboard.dismiss()}
+                onBlur={() => saveRename(item)}
+                returnKeyType="done"
+              />
+            ) : (
+              <Text style={[styles.docName, { color: tc.text }]} numberOfLines={1}>{name}</Text>
+            )}
+            <Text style={[styles.docMeta, { color: tc.textSecondary }]}>{item.date} · {item.size}</Text>
+          </View>
+
+          {!isEditing && (
+            <TouchableOpacity style={styles.docMenuBtn} onPress={(e) => showCtx(e, item)}>
+              <IconSymbol name="ellipsis" size={18} color={tc.icon} />
+            </TouchableOpacity>
           )}
-          <Text style={[styles.docMeta, { color: tc.textSecondary }]}>{item.date} · {item.size}</Text>
-        </View>
-
-        {!isEditing && (
-          <TouchableOpacity style={styles.docMenuBtn} onPress={(e) => showCtx(e, item)}>
-            <IconSymbol name="ellipsis" size={16} color={tc.textSecondary} style={{ opacity: 0.5 }} />
-          </TouchableOpacity>
-        )}
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </Animated.View>
     );
   }, [colorScheme, editingId, editingValue, pdfs.length, tc]);
 
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const botPad = Platform.OS === 'web' ? 0 : 0;
+
   if (isSelecting) {
     return (
-      <View style={[styles.guardFull, { backgroundColor: tc.background }]}>
-        <ActivityIndicator color={Brand.indigo} size="large" />
-        <Text style={[styles.guardTitle, { color: tc.text }]}>Loading Images</Text>
+      <View style={[styles.guardFull, { backgroundColor: isDark ? '#09090B' : '#F1F5F9' }]}>
+        <Animated.View entering={FadeIn.duration(200)} style={styles.guardBox}>
+          <ActivityIndicator color={Brand.indigo} size="large" />
+          <Text style={[styles.guardTitle, { color: tc.text }]}>Loading Images</Text>
+          <Text style={[styles.guardSub, { color: tc.textSecondary }]}>Preparing your selection…</Text>
+        </Animated.View>
       </View>
     );
   }
@@ -405,123 +438,86 @@ export default function HomeScreen() {
           data={recentData}
           keyExtractor={(item) => item.id}
           renderItem={renderDoc}
-          contentContainerStyle={styles.mainList}
+          contentContainerStyle={[styles.mainList, { paddingBottom: botPad + 20 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadLibrary(false)} tintColor={Brand.indigo} />}
           ListHeaderComponent={
             <View>
-              {pdfs.length > 0 ? (
-                <View style={styles.withPdfsHeader}>
-                  {/* Action bar */}
-                  <View style={styles.actionBar}>
-                    <TouchableOpacity
-                      style={[styles.newPdfBtn, { backgroundColor: Brand.indigo }]}
-                      onPress={() => pickImages(false)}
-                      activeOpacity={0.85}
-                    >
-                      <IconSymbol name="plus" size={16} color="#FFF" />
-                      <Text style={styles.newPdfBtnText}>New PDF</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.libraryBtn, {
-                        backgroundColor: isDark ? '#18181B' : '#FFFFFF',
-                        borderColor: isDark ? '#3F3F46' : '#E4E4E7',
-                      }]}
-                      onPress={() => setShowLibraryModal(true)}
-                      activeOpacity={0.75}
-                    >
-                      <IconSymbol name="photo.on.rectangle.angled" size={15} color={tc.textSecondary} />
-                      <Text style={[styles.libraryBtnText, { color: tc.text }]}>Library</Text>
-                      <View style={[styles.libraryCount, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
-                        <Text style={[styles.libraryCountText, { color: tc.textSecondary }]}>{pdfs.length}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Section label */}
-                  <View style={styles.sectionRow}>
-                    <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>Recent</Text>
-                    {pdfs.length > 5 && (
-                      <TouchableOpacity onPress={() => setShowLibraryModal(true)}>
-                        <Text style={[styles.seeAll, { color: Brand.indigo }]}>See all</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          }
-          ListEmptyComponent={
-            isLoadingLibrary ? null : (
-              /* Full-screen onboarding when library is empty */
-              <View style={[styles.onboarding, { backgroundColor: tc.background }]}>
-                {/* Icon cluster */}
-                <View style={styles.onboardingIconRow}>
-                  <View style={[styles.onboardingIconBox, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
-                    <IconSymbol name="photo.on.rectangle.angled" size={28} color={Brand.indigo} />
-                  </View>
-                  <View style={styles.onboardingArrow}>
-                    <View style={[styles.onboardingArrowLine, { backgroundColor: isDark ? '#3F3F46' : '#D4D4D8' }]} />
-                    <View style={[styles.onboardingArrowHead, { borderLeftColor: isDark ? '#3F3F46' : '#D4D4D8' }]} />
-                  </View>
-                  <View style={[styles.onboardingIconBox, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
-                    <IconSymbol name="doc.text.fill" size={28} color={Brand.pdfRed} />
-                  </View>
-                </View>
-
-                <Text style={[styles.onboardingTitle, { color: tc.text }]}>
-                  Turn photos into PDFs
-                </Text>
-
-                {/* Steps */}
-                <View style={styles.stepsContainer}>
-                  {[
-                    { num: '1', label: 'Pick images', desc: 'Choose one or many photos', icon: 'photo.on.rectangle.angled' as const, color: Brand.indigo },
-                    { num: '2', label: 'Arrange pages', desc: 'Drag to reorder', icon: 'rectangle.stack.fill' as const, color: Brand.amber },
-                    { num: '3', label: 'Export PDF', desc: 'Save or share instantly', icon: 'square.and.arrow.up' as const, color: Brand.pdfRed },
-                  ].map((step) => (
-                    <View key={step.num} style={[styles.stepCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-                      <View style={[styles.stepIconBox, { backgroundColor: `${step.color}15` }]}>
-                        <IconSymbol name={step.icon} size={18} color={step.color} />
-                      </View>
-                      <View style={styles.stepCardText}>
-                        <Text style={[styles.stepCardLabel, { color: tc.text }]}>{step.label}</Text>
-                        <Text style={[styles.stepCardDesc, { color: tc.textSecondary }]}>{step.desc}</Text>
-                      </View>
-                      <View style={[styles.stepNumBadge, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
-                        <Text style={[styles.stepNumText, { color: tc.textSecondary }]}>{step.num}</Text>
-                      </View>
+              <View style={[styles.hero, { backgroundColor: isDark ? '#18181B' : '#FFFFFF' }]}>
+                <View style={styles.heroContent}>
+                  <View style={styles.heroVisual}>
+                    <View style={[styles.heroIconBox, { backgroundColor: `${Brand.indigo}18` }]}>
+                      <IconSymbol name="photo.on.rectangle.angled" size={32} color={Brand.indigo} />
                     </View>
-                  ))}
+                    <View style={styles.heroArrowBox}>
+                      <View style={styles.heroArrowLine} />
+                      <View style={[styles.heroArrowHead, { borderLeftColor: Brand.pdfRed }]} />
+                    </View>
+                    <View style={[styles.heroIconBox, { backgroundColor: `${Brand.pdfRed}18` }]}>
+                      <IconSymbol name="doc.text.fill" size={32} color={Brand.pdfRed} />
+                    </View>
+                  </View>
+                  <Text style={[styles.heroTitle, { color: tc.text }]}>Images to PDF</Text>
+                  <Text style={[styles.heroSub, { color: tc.textSecondary }]}>
+                    Select photos · arrange · export as a professional PDF — all on-device.
+                  </Text>
                 </View>
 
-                {/* Primary CTA */}
                 <TouchableOpacity
-                  style={[styles.onboardingCta, { backgroundColor: Brand.indigo }]}
+                  style={[styles.ctaBtn, { backgroundColor: Brand.indigo }]}
                   onPress={() => pickImages(false)}
                   activeOpacity={0.85}
                 >
-                  <IconSymbol name="plus" size={18} color="#FFF" />
-                  <Text style={styles.onboardingCtaText}>Get Started</Text>
+                  <IconSymbol name="plus" size={20} color="#FFF" />
+                  <Text style={styles.ctaBtnText}>Select Images</Text>
                 </TouchableOpacity>
 
-                <Text style={[styles.onboardingHint, { color: tc.textSecondary }]}>
-                  100% offline · nothing leaves your device
-                </Text>
+                <TouchableOpacity
+                  style={[styles.ctaBtnSecondary, { backgroundColor: isDark ? '#27272A' : '#F1F5F9', borderColor: tc.border }]}
+                  onPress={() => setShowLibraryModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <IconSymbol name="photo.on.rectangle.angled" size={18} color={tc.icon} />
+                  <Text style={[styles.ctaBtnSecondaryText, { color: tc.text }]}>View All PDFs</Text>
+                  {pdfs.length > 0 && (
+                    <View style={[styles.countBadge, { backgroundColor: Brand.indigo }]}>
+                      <Text style={styles.countBadgeText}>{pdfs.length}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
               </View>
-            )
+
+              <View style={styles.sectionRow}>
+                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>RECENT</Text>
+                {pdfs.length > 0 && (
+                  <TouchableOpacity onPress={() => setShowLibraryModal(true)}>
+                    <Text style={[styles.seeAll, { color: Brand.indigo }]}>See all</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <View style={[styles.emptyIcon, { backgroundColor: isDark ? '#27272A' : '#E2E8F0' }]}>
+                <IconSymbol name="doc.text.fill" size={28} color={tc.textSecondary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: tc.text }]}>No PDFs yet</Text>
+              <Text style={[styles.emptySub, { color: tc.textSecondary }]}>Tap "Select Images" above to create your first PDF</Text>
+            </View>
           }
         />
 
-        {/* Context menu */}
         {contextMenu.visible && contextMenu.item && (
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setContextMenu(p => ({ ...p, visible: false }))}>
-            <View style={[styles.ctxMenu, {
-              top: contextMenu.y, left: contextMenu.x,
-              backgroundColor: isDark ? '#27272A' : '#FFFFFF',
-              borderColor: isDark ? '#3F3F46' : '#E4E4E7',
-            }]}>
+            <Animated.View
+              entering={ZoomIn.springify().damping(20)}
+              style={[styles.ctxMenu, {
+                top: contextMenu.y, left: contextMenu.x,
+                backgroundColor: isDark ? '#27272A' : '#FFFFFF',
+                borderColor: tc.border,
+              }]}
+            >
               {[
                 { label: 'Open', icon: 'eye.fill' as const, onPress: () => openPdf(contextMenu.item!.uri) },
                 { label: 'Share', icon: 'square.and.arrow.up' as const, onPress: async () => { await Sharing.shareAsync(contextMenu.item!.uri); } },
@@ -539,52 +535,48 @@ export default function HomeScreen() {
               ].map((action, i) => (
                 <TouchableOpacity
                   key={action.label}
-                  style={[styles.ctxItem, i < 3 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7' }]}
+                  style={[styles.ctxItem, i < 3 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tc.border }]}
                   onPress={() => { setContextMenu(p => ({ ...p, visible: false })); action.onPress(); }}
                 >
-                  <Text style={[styles.ctxLabel, { color: action.isDestructive ? Brand.pdfRed : tc.text }]}>
+                  <Text style={[styles.ctxLabel, action.isDestructive && { color: Brand.pdfRed }, { color: action.isDestructive ? Brand.pdfRed : tc.text }]}>
                     {action.label}
                   </Text>
-                  <IconSymbol name={action.icon} size={14} color={action.isDestructive ? Brand.pdfRed : tc.textSecondary} style={{ opacity: action.isDestructive ? 1 : 0.5 }} />
+                  <IconSymbol name={action.icon} size={15} color={action.isDestructive ? Brand.pdfRed : tc.icon} />
                 </TouchableOpacity>
               ))}
-            </View>
+            </Animated.View>
           </Pressable>
         )}
       </View>
 
-      {/* Draft modal */}
-      <Modal
-        visible={showDraftModal}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => { setShowDraftModal(false); setIsProcessing(false); }}
-      >
+      <Modal visible={showDraftModal} animationType="slide" presentationStyle="fullScreen">
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={[styles.root, { backgroundColor: tc.background }]}>
             <View style={[styles.modalHeader, {
-              paddingTop: Platform.OS === 'web' ? 24 : insets.top + 12,
+              paddingTop: Platform.OS === 'web' ? 67 : insets.top + 12,
               backgroundColor: isDark ? '#18181B' : '#FFFFFF',
-              borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7',
+              borderBottomColor: tc.border,
               borderBottomWidth: StyleSheet.hairlineWidth,
             }]}>
               <TouchableOpacity
-                style={[styles.modalHeaderBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}
-                onPress={() => { setShowDraftModal(false); setIsProcessing(false); }}
+                style={[styles.modalHeaderBtn, { backgroundColor: isDark ? '#27272A' : '#F1F5F9' }]}
+                onPress={() => { setShowDraftModal(false); setIsProcessing(false); setIsPreparingDraft(false); }}
               >
                 <Text style={[styles.modalHeaderBtnText, { color: tc.textSecondary }]}>Discard</Text>
               </TouchableOpacity>
 
               <View style={styles.modalTitleBlock}>
                 <Text style={[styles.modalTitle, { color: tc.text }]}>Draft</Text>
-                <Text style={[styles.modalSubtitle, { color: tc.textSecondary }]}>{selectedImages.length} pages</Text>
+                <View style={[styles.pagePill, { backgroundColor: `${Brand.indigo}20` }]}>
+                  <Text style={[styles.pagePillText, { color: Brand.indigo }]}>{selectedImages.length} pages</Text>
+                </View>
               </View>
 
               <TouchableOpacity
-                style={[styles.modalHeaderBtn, { backgroundColor: `${Brand.indigo}18` }]}
+                style={[styles.modalHeaderBtn, { backgroundColor: `${Brand.indigo}20` }]}
                 onPress={() => pickImages(true)}
               >
-                <IconSymbol name="plus" size={17} color={Brand.indigo} />
+                <IconSymbol name="plus" size={18} color={Brand.indigo} />
               </TouchableOpacity>
             </View>
 
@@ -593,38 +585,45 @@ export default function HomeScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={[styles.nameInputCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-                <Text style={[styles.nameInputLabel, { color: tc.textSecondary }]}>Document title</Text>
+              <View style={[styles.nameInputCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: tc.border }]}>
+                <Text style={[styles.nameInputLabel, { color: tc.textSecondary }]}>DOCUMENT TITLE</Text>
                 <TextInput
                   style={[styles.nameInput, { color: tc.text }]}
                   value={pdfName}
                   onChangeText={setPdfName}
-                  placeholder="File name…"
+                  placeholder="Enter file name…"
                   placeholderTextColor={tc.textSecondary}
                 />
               </View>
 
               <View style={styles.draftSectionRow}>
-                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>Pages ({selectedImages.length})</Text>
-                <Text style={[styles.draftHint, { color: tc.textSecondary }]}>Hold to reorder</Text>
+                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>
+                  {isPreparingDraft ? 'LOADING…' : `PAGES (${selectedImages.length})`}
+                </Text>
+                {!isPreparingDraft && (
+                  <Text style={[styles.draftHint, { color: tc.textSecondary }]}>Hold to reorder</Text>
+                )}
               </View>
 
               <View style={styles.draftGrid}>
-                {selectedImages.map((uri, index) => (
-                  <DraggableItem
-                    key={uri} uri={uri} index={index}
-                    total={selectedImages.length}
-                    onSwap={swapImages} onRemove={removeImage}
-                    colorScheme={colorScheme}
-                  />
-                ))}
+                {isPreparingDraft
+                  ? [0,1,2,3].map(i => <SkeletonItem key={i} />)
+                  : selectedImages.map((uri, index) => (
+                    <DraggableItem
+                      key={uri} uri={uri} index={index}
+                      total={selectedImages.length}
+                      onSwap={swapImages} onRemove={removeImage}
+                      colorScheme={colorScheme}
+                    />
+                  ))
+                }
               </View>
             </ScrollView>
 
             <View style={[styles.draftFooter, {
               paddingBottom: Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 20),
               backgroundColor: isDark ? '#18181B' : '#FFFFFF',
-              borderTopColor: isDark ? '#3F3F46' : '#E4E4E7',
+              borderTopColor: tc.border,
               borderTopWidth: StyleSheet.hairlineWidth,
             }]}>
               {isProcessing ? (
@@ -636,12 +635,12 @@ export default function HomeScreen() {
                 </Animated.View>
               ) : (
                 <TouchableOpacity
-                  style={[styles.generateBtn, { backgroundColor: Brand.indigo }]}
+                  style={[styles.generateBtn, { backgroundColor: Brand.pdfRed }]}
                   onPress={generatePdf}
                   activeOpacity={0.85}
                   disabled={selectedImages.length === 0}
                 >
-                  <IconSymbol name="doc.text.fill" size={18} color="#FFF" />
+                  <IconSymbol name="doc.text.fill" size={20} color="#FFF" />
                   <Text style={styles.generateBtnText}>Generate PDF</Text>
                 </TouchableOpacity>
               )}
@@ -650,32 +649,26 @@ export default function HomeScreen() {
         </GestureHandlerRootView>
       </Modal>
 
-      {/* Library modal */}
-      <Modal
-        visible={showLibraryModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => { setShowLibraryModal(false); setLibSearchQuery(''); }}
-      >
+      <Modal visible={showLibraryModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.root, { backgroundColor: tc.background }]}>
           <View style={[styles.modalHeader, {
             paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,
             backgroundColor: isDark ? '#18181B' : '#FFFFFF',
-            borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7',
+            borderBottomColor: tc.border,
             borderBottomWidth: StyleSheet.hairlineWidth,
           }]}>
             <View style={{ width: 80 }} />
             <Text style={[styles.modalTitle, { color: tc.text }]}>Library</Text>
             <TouchableOpacity
-              style={[styles.modalHeaderBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5', width: 80 }]}
+              style={[styles.modalHeaderBtn, { backgroundColor: isDark ? '#27272A' : '#F1F5F9', width: 80 }]}
               onPress={() => setShowLibraryModal(false)}
             >
               <Text style={[styles.modalHeaderBtnText, { color: tc.textSecondary }]}>Done</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.searchRow, { backgroundColor: isDark ? '#27272A' : '#F4F4F5', marginHorizontal: 16, marginTop: 12 }]}>
-            <IconSymbol name="magnifyingglass" size={15} color={tc.textSecondary} style={{ opacity: 0.5 }} />
+          <View style={[styles.searchRow, { backgroundColor: isDark ? '#27272A' : '#F1F5F9', marginHorizontal: 16, marginTop: 12 }]}>
+            <IconSymbol name="magnifyingglass" size={16} color={tc.textSecondary} />
             <TextInput
               style={[styles.searchInput, { color: tc.text }]}
               value={libSearchQuery}
@@ -701,9 +694,9 @@ export default function HomeScreen() {
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View style={styles.emptyBox}>
-                <Text style={[styles.emptyTitle, { color: tc.textSecondary }]}>No documents found</Text>
+                <Text style={[styles.emptyTitle, { color: tc.text }]}>No documents found</Text>
                 <Text style={[styles.emptySub, { color: tc.textSecondary }]}>
-                  {libSearchQuery ? 'Try a different search.' : 'Create your first PDF from home.'}
+                  {libSearchQuery ? 'Try a different search term.' : 'Create your first PDF from the home screen.'}
                 </Text>
               </View>
             }
@@ -716,214 +709,145 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  guardFull: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
-  guardTitle: { fontSize: 16, fontWeight: '600' },
+  guardFull: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  guardBox: { alignItems: 'center', gap: 12 },
+  guardTitle: { fontSize: 17, fontWeight: '700', marginTop: 4 },
+  guardSub: { fontSize: 14, textAlign: 'center' },
 
-  mainList: { paddingHorizontal: 20, paddingBottom: 40 },
+  mainList: { paddingHorizontal: 16, gap: 0 },
 
-  withPdfsHeader: {
-    paddingTop: 20,
-    paddingBottom: 4,
-    gap: 20,
-  },
-  actionBar: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  newPdfBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    paddingVertical: 13,
-    borderRadius: 12,
-  },
-  newPdfBtnText: { color: '#FFF', fontSize: 15, fontWeight: '600' },
-  libraryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  libraryBtnText: { fontSize: 15, fontWeight: '500' },
-  libraryCount: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+  hero: {
     borderRadius: 20,
-  },
-  libraryCountText: { fontSize: 12, fontWeight: '600' },
-
-  sectionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    marginTop: 4,
-  },
-  sectionTitle: { fontSize: 13, fontWeight: '600' },
-  seeAll: { fontSize: 13, fontWeight: '500' },
-
-  docCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    marginBottom: 8,
-    padding: 12,
+    padding: 20,
+    marginBottom: 16,
     gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  docThumbBox: { width: 44, height: 52, borderRadius: 8, overflow: 'hidden', backgroundColor: '#F4F4F5' },
-  pdfBadgeSmall: {
-    position: 'absolute', bottom: 2, right: 2,
-    backgroundColor: Brand.pdfRed, borderRadius: 3,
-    paddingHorizontal: 3, paddingVertical: 1,
-  },
-  pdfBadgeSmallText: { color: '#FFF', fontSize: 7, fontWeight: '800' },
-  docInfo: { flex: 1, gap: 3 },
-  docName: { fontSize: 14, fontWeight: '600' },
-  docMeta: { fontSize: 12, fontWeight: '400' },
-  docMenuBtn: { padding: 8 },
-  renameInput: { fontSize: 14, fontWeight: '600', borderBottomWidth: 1.5, paddingVertical: 2 },
-
-  emptyBox: { alignItems: 'center', paddingVertical: 48, gap: 6 },
-  emptyTitle: { fontSize: 15, fontWeight: '600' },
-  emptySub: { fontSize: 13, textAlign: 'center', maxWidth: 260, lineHeight: 19, fontWeight: '400' },
-
-  onboarding: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 40, gap: 0 },
-  onboardingIconRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 0, marginBottom: 32 },
-  onboardingIconBox: { width: 72, height: 72, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  onboardingArrow: { flexDirection: 'row', alignItems: 'center', width: 44, paddingHorizontal: 4 },
-  onboardingArrowLine: { flex: 1, height: 1.5 },
-  onboardingArrowHead: {
+  heroContent: { alignItems: 'center', paddingVertical: 8 },
+  heroVisual: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  heroIconBox: { width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  heroArrowBox: { flexDirection: 'row', alignItems: 'center', width: 32 },
+  heroArrowLine: { flex: 1, height: 2, backgroundColor: '#CBD5E1' },
+  heroArrowHead: {
     width: 0, height: 0,
-    borderTopWidth: 5, borderBottomWidth: 5, borderLeftWidth: 8,
+    borderTopWidth: 6, borderBottomWidth: 6,
+    borderLeftWidth: 10,
     borderTopColor: 'transparent', borderBottomColor: 'transparent',
   },
-  onboardingTitle: { fontSize: 28, fontWeight: '700', letterSpacing: -0.6, textAlign: 'center', marginBottom: 10 },
-  onboardingSub: { fontSize: 15, lineHeight: 23, fontWeight: '400', textAlign: 'center', marginBottom: 36 },
-  stepsContainer: { gap: 10, marginBottom: 32 },
-  stepCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderRadius: 14, padding: 14, borderWidth: StyleSheet.hairlineWidth,
-  },
-  stepIconBox: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  stepCardText: { flex: 1, gap: 2 },
-  stepCardLabel: { fontSize: 15, fontWeight: '600' },
-  stepCardDesc: { fontSize: 12, fontWeight: '400' },
-  stepNumBadge: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  stepNumText: { fontSize: 12, fontWeight: '700' },
-  onboardingCta: {
+  heroTitle: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, textAlign: 'center' },
+  heroSub: { fontSize: 14, textAlign: 'center', lineHeight: 20, marginTop: 6, maxWidth: 280 },
+
+  ctaBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 16, borderRadius: 14, marginBottom: 16,
+    gap: 8, paddingVertical: 15, borderRadius: 14,
+    shadowColor: Brand.indigo, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
-  onboardingCtaText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
-  onboardingHint: { fontSize: 12, fontWeight: '400', textAlign: 'center' },
+  ctaBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
+  ctaBtnSecondary: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 13, borderRadius: 14, borderWidth: 1,
+  },
+  ctaBtnSecondaryText: { fontSize: 15, fontWeight: '600' },
+  countBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20, marginLeft: 4 },
+  countBadgeText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+
+  sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 4 },
+  sectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
+  seeAll: { fontSize: 13, fontWeight: '700' },
+
+  docCard: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: 14, marginBottom: 8,
+    padding: 12, gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+  },
+  docThumbBox: { width: 48, height: 56, borderRadius: 10, overflow: 'hidden', backgroundColor: '#F1F5F9' },
+  pdfBadgeSmall: {
+    position: 'absolute', bottom: 3, right: 3,
+    backgroundColor: Brand.pdfRed, borderRadius: 3,
+    paddingHorizontal: 4, paddingVertical: 1,
+  },
+  pdfBadgeSmallText: { color: '#FFF', fontSize: 7, fontWeight: '900' },
+  docInfo: { flex: 1, gap: 4 },
+  docName: { fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
+  docMeta: { fontSize: 12, fontWeight: '500' },
+  docMenuBtn: { padding: 8 },
+  renameInput: { fontSize: 14, fontWeight: '700', borderBottomWidth: 2, paddingVertical: 2 },
+
+  emptyBox: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyIcon: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  emptyTitle: { fontSize: 16, fontWeight: '700' },
+  emptySub: { fontSize: 13, textAlign: 'center', maxWidth: 240, lineHeight: 18 },
 
   ctxMenu: {
-    position: 'absolute',
-    width: 170,
-    borderRadius: 14,
+    position: 'absolute', width: 180, borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 10,
-    overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15, shadowRadius: 16, elevation: 10, overflow: 'hidden',
   },
-  ctxItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-  },
-  ctxLabel: { fontSize: 14, fontWeight: '500' },
+  ctxItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 13 },
+  ctxLabel: { fontSize: 14, fontWeight: '600' },
 
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 14,
   },
-  modalHeaderBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalHeaderBtnText: { fontSize: 14, fontWeight: '500' },
-  modalTitleBlock: { alignItems: 'center', gap: 2 },
-  modalTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
-  modalSubtitle: { fontSize: 12, fontWeight: '400' },
+  modalHeaderBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  modalHeaderBtnText: { fontSize: 14, fontWeight: '600' },
+  modalTitleBlock: { alignItems: 'center', gap: 4 },
+  modalTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  pagePill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 },
+  pagePillText: { fontSize: 11, fontWeight: '700' },
 
   draftScroll: { padding: 16, gap: 16, paddingBottom: 0 },
   nameInputCard: {
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: 6,
+    borderRadius: 14, padding: 14, borderWidth: 1, gap: 6,
   },
-  nameInputLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
-  nameInput: { fontSize: 16, fontWeight: '600', paddingVertical: 2 },
-  draftSectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  draftHint: { fontSize: 12, fontWeight: '400' },
+  nameInputLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  nameInput: { fontSize: 16, fontWeight: '700', paddingVertical: 2 },
+  draftSectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  draftHint: { fontSize: 11, fontWeight: '500' },
   draftGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingTop: 8 },
   draftCardWrap: { width: ITEM_W },
   draftCard: {
-    width: ITEM_W,
-    height: ITEM_W * 1.3,
-    borderRadius: 10,
-    overflow: 'hidden',
+    width: ITEM_W, height: ITEM_W * 1.3, borderRadius: 12, overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3,
   },
+  skeleton: { backgroundColor: '#CBD5E1' },
   draftThumb: { width: '100%', height: '100%' },
   draftRemoveBtn: { position: 'absolute', top: 6, right: 6 },
   draftRemoveCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center',
   },
-  draftRemoveX: { color: '#FFF', fontSize: 10, fontWeight: '800' },
+  draftRemoveX: { color: '#FFF', fontSize: 10, fontWeight: '900' },
   pageTag: {
     position: 'absolute', bottom: 6, left: 6,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 5,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
   },
-  pageTagText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  pageTagText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
 
   draftFooter: { padding: 16, paddingTop: 12 },
   processingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14 },
-  processingText: { fontSize: 14, fontWeight: '500' },
+  processingText: { fontSize: 14, fontWeight: '600' },
   generateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 15,
-    borderRadius: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 15, borderRadius: 14,
+    shadowColor: Brand.pdfRed, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
-  generateBtnText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  generateBtnText: { color: '#FFF', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
 
   searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    gap: 8,
-    marginBottom: 0,
+    flexDirection: 'row', alignItems: 'center', borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, gap: 8, marginBottom: 0,
   },
-  searchInput: { flex: 1, fontSize: 14, fontWeight: '400' },
-  clearSearch: { width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: 0.4 },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '500' },
+  clearSearch: { width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', opacity: 0.5 },
   clearSearchX: { color: '#FFF', fontSize: 9, fontWeight: '900' },
 });
