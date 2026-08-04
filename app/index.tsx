@@ -584,44 +584,50 @@ export default function HomeScreen() {
           }
         />
 
-        {/* Context menu */}
-        {contextMenu.visible && contextMenu.item && (
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setContextMenu(p => ({ ...p, visible: false }))}>
-            <View style={[styles.ctxMenu, {
-              top: contextMenu.y, left: contextMenu.x,
-              backgroundColor: isDark ? '#27272A' : '#FFFFFF',
-              borderColor: isDark ? '#3F3F46' : '#E4E4E7',
-            }]}>
-              {[
-                { label: 'Open', icon: 'eye.fill' as const, onPress: () => openPdf(contextMenu.item!.uri) },
-                { label: 'Share', icon: 'square.and.arrow.up' as const, onPress: async () => { await Sharing.shareAsync(contextMenu.item!.uri); } },
-                { label: 'Rename', icon: 'pencil' as const, onPress: () => { setEditingId(contextMenu.item!.id); setEditingValue(contextMenu.item!.name.replace('.pdf', '')); } },
-                { label: 'Delete', icon: 'trash.fill' as const, isDestructive: true, onPress: () => {
-                  Alert.alert('Delete PDF', 'This cannot be undone.', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: async () => {
-                      await FileSystem.deleteAsync(contextMenu.item!.uri);
-                      if (contextMenu.item!.thumbnailUri) await FileSystem.deleteAsync(contextMenu.item!.thumbnailUri!);
-                      setPdfs(prev => prev.filter(p => p.id !== contextMenu.item!.id));
-                    }},
-                  ]);
-                }},
-              ].map((action, i) => (
-                <TouchableOpacity
-                  key={action.label}
-                  style={[styles.ctxItem, i < 3 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7' }]}
-                  onPress={() => { setContextMenu(p => ({ ...p, visible: false })); action.onPress(); }}
-                >
-                  <Text style={[styles.ctxLabel, { color: action.isDestructive ? Brand.pdfRed : tc.text }]}>
-                    {action.label}
-                  </Text>
-                  <IconSymbol name={action.icon} size={14} color={action.isDestructive ? Brand.pdfRed : tc.textSecondary} style={{ opacity: action.isDestructive ? 1 : 0.5 }} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Pressable>
-        )}
       </View>
+
+      {/* Context menu — transparent modal so coordinates are window-relative */}
+      <Modal
+        visible={contextMenu.visible && !!contextMenu.item}
+        transparent
+        animationType="none"
+        onRequestClose={() => setContextMenu(p => ({ ...p, visible: false }))}
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setContextMenu(p => ({ ...p, visible: false }))}>
+          <View style={[styles.ctxMenu, {
+            top: contextMenu.y, left: contextMenu.x,
+            backgroundColor: isDark ? '#27272A' : '#FFFFFF',
+            borderColor: isDark ? '#3F3F46' : '#E4E4E7',
+          }]}>
+            {[
+              { label: 'Open', icon: 'eye.fill' as const, onPress: () => openPdf(contextMenu.item!.uri) },
+              { label: 'Share', icon: 'square.and.arrow.up' as const, onPress: async () => { await Sharing.shareAsync(contextMenu.item!.uri); } },
+              { label: 'Rename', icon: 'pencil' as const, onPress: () => { setEditingId(contextMenu.item!.id); setEditingValue(contextMenu.item!.name.replace('.pdf', '')); } },
+              { label: 'Delete', icon: 'trash.fill' as const, isDestructive: true, onPress: () => {
+                Alert.alert('Delete PDF', 'This cannot be undone.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: async () => {
+                    await FileSystem.deleteAsync(contextMenu.item!.uri);
+                    if (contextMenu.item!.thumbnailUri) await FileSystem.deleteAsync(contextMenu.item!.thumbnailUri!);
+                    setPdfs(prev => prev.filter(p => p.id !== contextMenu.item!.id));
+                  }},
+                ]);
+              }},
+            ].map((action, i) => (
+              <TouchableOpacity
+                key={action.label}
+                style={[styles.ctxItem, i < 3 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7' }]}
+                onPress={() => { setContextMenu(p => ({ ...p, visible: false })); action.onPress(); }}
+              >
+                <Text style={[styles.ctxLabel, { color: action.isDestructive ? Brand.pdfRed : tc.text }]}>
+                  {action.label}
+                </Text>
+                <IconSymbol name={action.icon} size={14} color={action.isDestructive ? Brand.pdfRed : tc.textSecondary} style={{ opacity: action.isDestructive ? 1 : 0.5 }} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Draft modal */}
       <Modal
