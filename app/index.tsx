@@ -474,9 +474,6 @@ export default function HomeScreen() {
                 <Text style={[styles.onboardingTitle, { color: tc.text }]}>
                   Turn photos into PDFs
                 </Text>
-                <Text style={[styles.onboardingSub, { color: tc.textSecondary }]}>
-                  Select images from your library, arrange the pages, and export a clean PDF — all on‑device, no cloud needed.
-                </Text>
 
                 {/* Steps */}
                 <View style={styles.stepsContainer}>

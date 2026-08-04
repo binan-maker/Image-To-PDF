@@ -41,10 +41,10 @@ export default function RootLayout() {
             headerRight: () => (
               <TouchableOpacity
                 onPress={() => router.push('/explore')}
-                style={[styles.headerBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}
-                activeOpacity={0.7}
+                style={[styles.headerBtn, { borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}
+                activeOpacity={0.6}
               >
-                <IconSymbol name="gearshape.fill" size={16} color={themeColors.icon} />
+                <IconSymbol name="gearshape.fill" size={16} color={isDark ? '#71717A' : '#A1A1AA'} />
               </TouchableOpacity>
             ),
           }}
@@ -89,6 +89,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 9,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
