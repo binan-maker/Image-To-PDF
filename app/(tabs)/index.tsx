@@ -171,6 +171,8 @@ export default function HomeScreen() {
     visible: boolean; x: number; y: number; item: PdfDoc | null;
   }>({ visible: false, x: 0, y: 0, item: null });
 
+  const menuBtnRefs = React.useRef<{[id: string]: any}>({});
+
   const pulse = useSharedValue(1);
   const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
@@ -381,10 +383,19 @@ export default function HomeScreen() {
     finally { setEditingId(null); }
   };
 
-  const showCtx = (e: any, item: PdfDoc) => {
-    const { pageX, pageY } = e.nativeEvent;
-    setContextMenu({ visible: true, x: Math.min(pageX, SW - 200), y: Math.min(pageY, SH - 160), item });
-  };
+  const showCtx = useCallback((itemId: string, item: PdfDoc) => {
+    const ref = menuBtnRefs.current[itemId];
+    if (!ref) return;
+    ref.measureInWindow((x: number, y: number, w: number, h: number) => {
+      const MENU_W = 180;
+      setContextMenu({
+        visible: true,
+        x: Math.min(x + w - MENU_W, SW - MENU_W - 4),
+        y: y + h + 4,
+        item,
+      });
+    });
+  }, []);
 
   const recentData = useMemo(() => {
     const sliced = pdfs.slice(0, 5);
@@ -461,7 +472,11 @@ export default function HomeScreen() {
           </View>
 
           {!isEditing && (
-            <TouchableOpacity style={styles.docMenuBtn} onPress={(e) => showCtx(e, item)}>
+            <TouchableOpacity
+              ref={r => { if (r) menuBtnRefs.current[item.id] = r; }}
+              style={styles.docMenuBtn}
+              onPress={() => showCtx(item.id, item)}
+            >
               <IconSymbol name="ellipsis" size={18} color={tc.icon} />
             </TouchableOpacity>
           )}
@@ -840,6 +855,47 @@ export default function HomeScreen() {
               </View>
             }
           />
+
+          {/* Context menu inside library modal */}
+          {contextMenu.visible && contextMenu.item && (
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setContextMenu(p => ({ ...p, visible: false }))}>
+              <Animated.View
+                entering={ZoomIn.springify().damping(20)}
+                style={[styles.ctxMenu, {
+                  top: contextMenu.y, left: contextMenu.x,
+                  backgroundColor: isDark ? '#27272A' : '#FFFFFF',
+                  borderColor: tc.border,
+                }]}
+              >
+                {[
+                  { label: 'Open', icon: 'eye.fill' as const, onPress: () => openPdf(contextMenu.item!.uri) },
+                  { label: 'Share', icon: 'square.and.arrow.up' as const, onPress: async () => { await Sharing.shareAsync(contextMenu.item!.uri); } },
+                  { label: 'Rename', icon: 'pencil' as const, onPress: () => { setEditingId(contextMenu.item!.id); setEditingValue(contextMenu.item!.name.replace('.pdf', '')); } },
+                  { label: 'Delete', icon: 'trash.fill' as const, isDestructive: true, onPress: () => {
+                    Alert.alert('Delete PDF', 'This cannot be undone.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: async () => {
+                        await FileSystem.deleteAsync(contextMenu.item!.uri);
+                        if (contextMenu.item!.thumbnailUri) await FileSystem.deleteAsync(contextMenu.item!.thumbnailUri!);
+                        setPdfs(prev => prev.filter(p => p.id !== contextMenu.item!.id));
+                      }},
+                    ]);
+                  }},
+                ].map((action, i) => (
+                  <TouchableOpacity
+                    key={action.label}
+                    style={[styles.ctxItem, i < 3 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: tc.border }]}
+                    onPress={() => { setContextMenu(p => ({ ...p, visible: false })); action.onPress(); }}
+                  >
+                    <Text style={[styles.ctxLabel, action.isDestructive && { color: Brand.pdfRed }, { color: action.isDestructive ? Brand.pdfRed : tc.text }]}>
+                      {action.label}
+                    </Text>
+                    <IconSymbol name={action.icon} size={15} color={action.isDestructive ? Brand.pdfRed : tc.icon} />
+                  </TouchableOpacity>
+                ))}
+              </Animated.View>
+            </Pressable>
+          )}
         </View>
       </Modal>
     </GestureHandlerRootView>
