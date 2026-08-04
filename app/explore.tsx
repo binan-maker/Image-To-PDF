@@ -15,10 +15,81 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Brand, Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ThemePreference, useTheme } from '@/context/theme-context';
+
+// ─── Theme toggle ─────────────────────────────────────────────────────────────
+
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: any }[] = [
+  { value: 'light', label: 'Light', icon: 'sun.max.fill' },
+  { value: 'system', label: 'Auto', icon: 'circle.lefthalf.filled' },
+  { value: 'dark', label: 'Dark', icon: 'moon.fill' },
+];
+
+function ThemeToggle({ tc, isDark }: { tc: any; isDark: boolean }) {
+  const { themePreference, setThemePreference } = useTheme();
+
+  return (
+    <View style={[toggleStyles.row, { backgroundColor: isDark ? '#09090B' : '#F1F5F9', borderColor: tc.border ?? (isDark ? '#27272A' : '#F4F4F5') }]}>
+      {THEME_OPTIONS.map((opt) => {
+        const active = themePreference === opt.value;
+        return (
+          <TouchableOpacity
+            key={opt.value}
+            style={[
+              toggleStyles.option,
+              active && { backgroundColor: isDark ? '#27272A' : '#FFFFFF' },
+            ]}
+            onPress={() => setThemePreference(opt.value)}
+            activeOpacity={0.7}
+          >
+            <IconSymbol
+              name={opt.icon}
+              size={14}
+              color={active ? Brand.indigo : tc.textSecondary}
+            />
+            <Text
+              style={[
+                toggleStyles.label,
+                { color: active ? Brand.indigo : tc.textSecondary },
+                active && { fontWeight: '800' },
+              ]}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+const toggleStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 3,
+    gap: 3,
+  },
+  option: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 9,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+});
+
+// ─── Settings screen ──────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
+  const { colorScheme, themePreference } = useTheme();
   const tc = Colors[colorScheme];
   const isDark = colorScheme === 'dark';
   const router = useRouter();
@@ -75,6 +146,10 @@ export default function SettingsScreen() {
   const topPad = Platform.OS === 'web' ? 24 : insets.top + 12;
   const botPad = Platform.OS === 'web' ? 40 : Math.max(insets.bottom, 24) + 16;
 
+  const themeLabel =
+    themePreference === 'system' ? 'Follows device setting' :
+    themePreference === 'dark' ? 'Dark mode' : 'Light mode';
+
   return (
     <View style={[styles.root, { backgroundColor: tc.background }]}>
       {/* Header */}
@@ -109,7 +184,10 @@ export default function SettingsScreen() {
           </View>
           <View style={[styles.storageDivider, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]} />
           <View style={styles.storageStat}>
-            <Text style={[styles.storageNumber, { color: tc.text }]}>{storageSize}<Text style={[styles.storageUnit, { color: tc.textSecondary }]}> MB</Text></Text>
+            <Text style={[styles.storageNumber, { color: tc.text }]}>
+              {storageSize}
+              <Text style={[styles.storageUnit, { color: tc.textSecondary }]}> MB</Text>
+            </Text>
             <Text style={[styles.storageLabel, { color: tc.textSecondary }]}>Used</Text>
           </View>
           <View style={[styles.storageDivider, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]} />
@@ -121,22 +199,27 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* General group */}
-        <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>General</Text>
+        {/* Appearance group */}
+        <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>Appearance</Text>
         <View style={[styles.group, {
           backgroundColor: isDark ? '#18181B' : '#FFFFFF',
           borderColor: isDark ? '#27272A' : '#F4F4F5',
         }]}>
-          <Row
-            icon="paintbrush"
-            iconColor={Brand.indigo}
-            title="Appearance"
-            value={colorScheme === 'dark' ? 'Dark' : 'Light'}
-            tc={tc} isDark={isDark}
-          />
+          <View style={styles.appearanceBlock}>
+            <View style={styles.appearanceTitleRow}>
+              <View style={[styles.rowIconBox, { backgroundColor: `${Brand.indigo}18` }]}>
+                <IconSymbol name="paintbrush" size={15} color={Brand.indigo} />
+              </View>
+              <View style={styles.appearanceText}>
+                <Text style={[styles.rowTitle, { color: tc.text }]}>Theme</Text>
+                <Text style={[styles.rowValue, { color: tc.textSecondary }]}>{themeLabel}</Text>
+              </View>
+            </View>
+            <ThemeToggle tc={tc} isDark={isDark} />
+          </View>
         </View>
 
-        {/* Danger zone */}
+        {/* Library group */}
         <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>Library</Text>
         <View style={[styles.group, {
           backgroundColor: isDark ? '#18181B' : '#FFFFFF',
@@ -204,7 +287,6 @@ export default function SettingsScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.privacyScroll} showsVerticalScrollIndicator={false}>
-            {/* Acceptance notice */}
             <View style={[styles.privacyNotice, { backgroundColor: `${Brand.indigo}12`, borderColor: `${Brand.indigo}30` }]}>
               <IconSymbol name="info.circle.fill" size={15} color={Brand.indigo} />
               <Text style={[styles.privacyNoticeText, { color: Brand.indigo }]}>
@@ -236,11 +318,11 @@ export default function SettingsScreen() {
           </ScrollView>
         </View>
       </Modal>
-
-
     </View>
   );
 }
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function RowDivider({ isDark }: { isDark: boolean }) {
   return (
@@ -278,6 +360,8 @@ function Row({
   );
 }
 
+// ─── Privacy content ──────────────────────────────────────────────────────────
+
 const PRIVACY_SECTIONS = [
   {
     title: 'Overview',
@@ -302,7 +386,7 @@ const PRIVACY_SECTIONS = [
     icon: 'doc.text.fill',
     color: Brand.pdfRed,
     paragraphs: [
-      'PDFs created by imgPDF are saved to your device\'s local storage. We are not responsible for any loss, corruption, or accidental deletion of PDF files or source images, whether caused by app errors, device failures, OS updates, storage issues, or any other circumstance.',
+      "PDFs created by imgPDF are saved to your device's local storage. We are not responsible for any loss, corruption, or accidental deletion of PDF files or source images, whether caused by app errors, device failures, OS updates, storage issues, or any other circumstance.",
       'We strongly recommend that you back up important PDFs to a cloud service or external storage immediately after creation. imgPDF provides a "Clear All PDFs" action that permanently removes all stored documents — this action cannot be undone.',
       'imgPDF is provided as-is without any guarantee of data preservation or file integrity beyond the current session.',
     ],
@@ -335,6 +419,7 @@ const PRIVACY_SECTIONS = [
   },
 ];
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -393,6 +478,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 24,
   },
+
+  // Appearance block
+  appearanceBlock: { padding: 14, gap: 12 },
+  appearanceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  appearanceText: { flex: 1, gap: 2 },
+
   rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
   row: {
     flexDirection: 'row',
@@ -439,5 +530,4 @@ const styles = StyleSheet.create({
   privacyParagraph: { fontSize: 13, lineHeight: 20, fontWeight: '400', marginBottom: 8 },
   privacyFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16, marginTop: 4 },
   privacyFooterText: { fontSize: 12, lineHeight: 18, fontWeight: '400', textAlign: 'center' },
-
 });

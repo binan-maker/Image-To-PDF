@@ -1,15 +1,15 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import 'react-native-reanimated';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Brand, Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Brand } from '@/constants/theme';
+import { ThemeProvider, useTheme } from '@/context/theme-context';
 
 function BrandHeader() {
-  const colorScheme = useColorScheme() ?? 'light';
+  const { colorScheme } = useTheme();
   const isDark = colorScheme === 'dark';
   return (
     <View style={styles.brandRow}>
@@ -21,14 +21,13 @@ function BrandHeader() {
   );
 }
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme() ?? 'light';
+function RootLayoutInner() {
+  const { colorScheme } = useTheme();
   const isDark = colorScheme === 'dark';
-  const themeColors = Colors[colorScheme];
   const router = useRouter();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <NavThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen
           name="index"
@@ -54,8 +53,17 @@ export default function RootLayout() {
           options={{ headerShown: false }}
         />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+    </NavThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <RootLayoutInner />
     </ThemeProvider>
   );
 }

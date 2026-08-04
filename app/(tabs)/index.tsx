@@ -141,6 +141,7 @@ const DraggableItem = memo(({
     </GestureDetector>
   );
 });
+DraggableItem.displayName = 'DraggableItem';
 
 export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -572,7 +573,7 @@ export default function HomeScreen() {
                 <IconSymbol name="doc.text.fill" size={28} color={tc.textSecondary} />
               </View>
               <Text style={[styles.emptyTitle, { color: tc.text }]}>No PDFs yet</Text>
-              <Text style={[styles.emptySub, { color: tc.textSecondary }]}>Tap "Select Images" above to create your first PDF</Text>
+              <Text style={[styles.emptySub, { color: tc.textSecondary }]}>{'Tap "Select Images" above to create your first PDF'}</Text>
             </View>
           }
         />

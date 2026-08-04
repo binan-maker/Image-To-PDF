@@ -42,4 +42,6 @@ PORT=5000 npx expo start --web --port 5000
 - Expo web output is configured as "static" in app.json
 - React Compiler is enabled (experiments.reactCompiler: true)
 - New architecture is enabled (newArchEnabled: true)
-- The app supports dark/light mode via useColorScheme hook
+- Theme system: `context/theme-context.tsx` provides `ThemeProvider` + `useTheme()`. Default is device system theme; user can override to Light/Dark/Auto in Settings. Choice persists via `localStorage` (web) or a JSON file in `FileSystem.documentDirectory` (native).
+- `hooks/use-color-scheme.ts` and `hooks/use-color-scheme.web.ts` both delegate to `useTheme()` so all existing `useColorScheme()` calls automatically respect the user's preference.
+- Settings screen (`app/(tabs)/explore.tsx`) has a 3-way toggle: Light | Auto | Dark.
