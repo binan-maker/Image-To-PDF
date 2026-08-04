@@ -123,6 +123,19 @@ const DraggableItem = memo(function DraggableItem({
   );
 });
 
+const SkeletonItem = () => {
+  const opacity = useSharedValue(0.3);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(0.6, { duration: 800 }), -1, true);
+  }, []);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View style={[styles.draftCardWrap, style]}>
+      <View style={[styles.draftCard, { backgroundColor: '#CBD5E1' }]} />
+    </Animated.View>
+  );
+};
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const tc = Colors[colorScheme];
@@ -135,6 +148,7 @@ export default function HomeScreen() {
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [pendingAppendCount, setPendingAppendCount] = useState(0);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [pdfName, setPdfName] = useState('');
@@ -218,21 +232,39 @@ export default function HomeScreen() {
   const pickImages = async (appending = false) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') return;
-    setIsSelecting(true);
+
+    if (!appending) setIsSelecting(true);
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.7,
       });
-      if (result.canceled) { setIsSelecting(false); return; }
-      if (!appending) setPdfName(`PDF_${Math.floor(100000 + Math.random() * 900000)}`);
+      if (result.canceled) {
+        if (!appending) setIsSelecting(false);
+        return;
+      }
       const uris = result.assets.map(a => a.uri);
-      setShowDraftModal(true);
-      setTimeout(() => {
-        if (appending) setSelectedImages(prev => [...prev, ...uris]);
-        else setSelectedImages(uris);
-        setIsSelecting(false);
-      }, 300);
-    } catch { setIsSelecting(false); Alert.alert('Error', 'Could not load images.'); }
+
+      if (appending) {
+        // Show skeleton cards immediately for each incoming image, then fill them in
+        setPendingAppendCount(uris.length);
+        setTimeout(() => {
+          setSelectedImages(prev => [...prev, ...uris]);
+          setPendingAppendCount(0);
+        }, 350);
+      } else {
+        setPdfName(`PDF_${Math.floor(100000 + Math.random() * 900000)}`);
+        setShowDraftModal(true);
+        setTimeout(() => {
+          setSelectedImages(uris);
+          setIsSelecting(false);
+        }, 300);
+      }
+    } catch {
+      if (!appending) setIsSelecting(false);
+      setPendingAppendCount(0);
+      Alert.alert('Error', 'Could not load images.');
+    }
   };
 
   // Build page dimensions from current settings.
@@ -669,7 +701,7 @@ export default function HomeScreen() {
 
               <View style={styles.modalTitleBlock}>
                 <Text style={[styles.modalTitle, { color: tc.text }]}>Draft</Text>
-                <Text style={[styles.modalSubtitle, { color: tc.textSecondary }]}>{selectedImages.length} pages</Text>
+                <Text style={[styles.modalSubtitle, { color: tc.textSecondary }]}>{selectedImages.length + pendingAppendCount} pages</Text>
               </View>
 
               <TouchableOpacity
@@ -764,7 +796,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.draftSectionRow}>
-                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>Pages ({selectedImages.length})</Text>
+                <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>
+                  Pages ({selectedImages.length + pendingAppendCount})
+                </Text>
                 <Text style={[styles.draftHint, { color: tc.textSecondary }]}>Hold to reorder</Text>
               </View>
 
@@ -776,6 +810,9 @@ export default function HomeScreen() {
                     onSwap={swapImages} onRemove={removeImage}
                     colorScheme={colorScheme}
                   />
+                ))}
+                {Array.from({ length: pendingAppendCount }).map((_, i) => (
+                  <SkeletonItem key={`pending-${i}`} />
                 ))}
               </View>
             </ScrollView>
