@@ -1,7 +1,16 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -38,78 +47,149 @@ export default function SettingsScreen() {
   useEffect(() => { calcStorage(); }, []);
 
   const handleClear = () => {
-    Alert.alert('Clear All Documents', 'This permanently deletes all PDF files. This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete All', style: 'destructive',
-        onPress: async () => {
-          const dir = FileSystem.documentDirectory;
-          if (!dir) return;
-          const files = await FileSystem.readDirectoryAsync(dir);
-          for (const f of files) {
-            if (f.toLowerCase().endsWith('.pdf') || f.toLowerCase().endsWith('.jpg')) {
-              await FileSystem.deleteAsync(`${dir}${f}`);
+    Alert.alert(
+      'Clear All Documents',
+      'This permanently deletes every PDF in your library. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: async () => {
+            const dir = FileSystem.documentDirectory;
+            if (!dir) return;
+            const files = await FileSystem.readDirectoryAsync(dir);
+            for (const f of files) {
+              if (f.toLowerCase().endsWith('.pdf') || f.toLowerCase().endsWith('.jpg')) {
+                await FileSystem.deleteAsync(`${dir}${f}`);
+              }
             }
-          }
-          calcStorage();
-          Alert.alert('Done', 'Library cleared.');
+            calcStorage();
+            Alert.alert('Done', 'Library cleared.');
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const topPad = Platform.OS === 'web' ? 24 : insets.top + 12;
+  const botPad = Platform.OS === 'web' ? 40 : Math.max(insets.bottom, 24) + 16;
 
   return (
     <View style={[styles.root, { backgroundColor: tc.background }]}>
-      <View style={[styles.header, { paddingTop: topPad, backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
+      {/* Header */}
+      <View style={[styles.header, {
+        paddingTop: topPad,
+        backgroundColor: isDark ? '#09090B' : '#FFFFFF',
+        borderBottomColor: isDark ? '#27272A' : '#F4F4F5',
+      }]}>
         <TouchableOpacity
           style={[styles.backBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}
           onPress={() => router.back()}
+          activeOpacity={0.7}
         >
-          <IconSymbol name="chevron.right" size={18} color={tc.text} style={{ transform: [{ rotate: '180deg' }] }} />
+          <IconSymbol name="chevron.right" size={16} color={tc.text} style={{ transform: [{ rotate: '180deg' }] }} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: tc.text }]}>Settings</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 36 }} />
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: Platform.OS === 'web' ? 40 : Math.max(insets.bottom, 24) + 16 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: botPad }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-            <Text style={[styles.statValue, { color: tc.text }]}>{docCount}</Text>
-            <Text style={[styles.statLabel, { color: tc.textSecondary }]}>Documents</Text>
+        {/* Storage card */}
+        <View style={[styles.storageCard, {
+          backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+          borderColor: isDark ? '#27272A' : '#F4F4F5',
+        }]}>
+          <View style={styles.storageStat}>
+            <Text style={[styles.storageNumber, { color: tc.text }]}>{docCount}</Text>
+            <Text style={[styles.storageLabel, { color: tc.textSecondary }]}>PDFs</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-            <Text style={[styles.statValue, { color: tc.text }]}>{storageSize}</Text>
-            <Text style={[styles.statLabel, { color: tc.textSecondary }]}>MB used</Text>
+          <View style={[styles.storageDivider, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]} />
+          <View style={styles.storageStat}>
+            <Text style={[styles.storageNumber, { color: tc.text }]}>{storageSize}<Text style={[styles.storageUnit, { color: tc.textSecondary }]}> MB</Text></Text>
+            <Text style={[styles.storageLabel, { color: tc.textSecondary }]}>Used</Text>
           </View>
+          <View style={[styles.storageDivider, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]} />
+          <TouchableOpacity style={styles.storageStat} onPress={calcStorage} activeOpacity={0.7}>
+            <View style={[styles.refreshIconBox, { backgroundColor: `${Brand.indigo}15` }]}>
+              <IconSymbol name="arrow.clockwise" size={15} color={Brand.indigo} />
+            </View>
+            <Text style={[styles.storageLabel, { color: Brand.indigo }]}>Refresh</Text>
+          </TouchableOpacity>
         </View>
 
+        {/* General group */}
         <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>General</Text>
-        <View style={[styles.group, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-          <SettingRow icon="paintbrush" title="Appearance" subtitle={`${colorScheme === 'dark' ? 'Dark' : 'Light'} mode`} tc={tc} isDark={isDark} />
-          <Separator tc={tc} isDark={isDark} />
-          <SettingRow icon="info.circle.fill" title="User Manual" subtitle="Tips and troubleshooting" tc={tc} isDark={isDark} onPress={() => setShowManual(true)} />
+        <View style={[styles.group, {
+          backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+          borderColor: isDark ? '#27272A' : '#F4F4F5',
+        }]}>
+          <Row
+            icon="paintbrush"
+            iconColor={Brand.indigo}
+            title="Appearance"
+            value={colorScheme === 'dark' ? 'Dark' : 'Light'}
+            tc={tc} isDark={isDark}
+          />
+          <RowDivider isDark={isDark} />
+          <Row
+            icon="info.circle.fill"
+            iconColor={Brand.indigo}
+            title="User Manual"
+            tc={tc} isDark={isDark}
+            onPress={() => setShowManual(true)}
+          />
         </View>
 
-        <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>Maintenance</Text>
-        <View style={[styles.group, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-          <SettingRow icon="rotate.right" title="Recalculate Stats" subtitle="Refresh storage metrics" tc={tc} isDark={isDark} onPress={calcStorage} />
-          <Separator tc={tc} isDark={isDark} />
-          <SettingRow icon="trash.fill" title="Clear All PDFs" subtitle="Permanently delete library" tc={tc} isDark={isDark} onPress={handleClear} isDestructive />
+        {/* Danger zone */}
+        <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>Library</Text>
+        <View style={[styles.group, {
+          backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+          borderColor: isDark ? '#27272A' : '#F4F4F5',
+        }]}>
+          <Row
+            icon="trash.fill"
+            iconColor={Brand.pdfRed}
+            title="Clear All PDFs"
+            value="Permanent"
+            isDestructive
+            tc={tc} isDark={isDark}
+            onPress={handleClear}
+          />
         </View>
 
+        {/* About */}
         <Text style={[styles.groupLabel, { color: tc.textSecondary }]}>About</Text>
-        <View style={[styles.group, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
-          <SettingRow icon="checkmark.circle.fill" title="Version" subtitle="1.0.2" tc={tc} isDark={isDark} />
+        <View style={[styles.group, {
+          backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+          borderColor: isDark ? '#27272A' : '#F4F4F5',
+        }]}>
+          <Row
+            icon="info.circle.fill"
+            iconColor={Brand.indigo}
+            title="Version"
+            value="1.0.2"
+            tc={tc} isDark={isDark}
+          />
+          <RowDivider isDark={isDark} />
+          <Row
+            icon="lock.fill"
+            iconColor="#34C759"
+            title="Privacy"
+            value="100% offline"
+            tc={tc} isDark={isDark}
+          />
         </View>
 
+        {/* Footer wordmark */}
         <View style={styles.footer}>
-          <Text style={[styles.footerText, { color: tc.textSecondary }]}>100% offline · private · on‑device</Text>
+          <View style={[styles.footerDot, { backgroundColor: Brand.indigo }]} />
+          <Text style={[styles.footerText, { color: tc.textSecondary }]}>
+            img<Text style={{ color: Brand.pdfRed }}>PDF</Text>
+          </Text>
         </View>
       </ScrollView>
 
@@ -118,10 +198,10 @@ export default function SettingsScreen() {
         <View style={[styles.root, { backgroundColor: tc.background }]}>
           <View style={[styles.header, {
             paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,
-            backgroundColor: isDark ? '#18181B' : '#FFFFFF',
-            borderBottomColor: isDark ? '#3F3F46' : '#E4E4E7',
+            backgroundColor: isDark ? '#09090B' : '#FFFFFF',
+            borderBottomColor: isDark ? '#27272A' : '#F4F4F5',
           }]}>
-            <View style={{ width: 40 }} />
+            <View style={{ width: 36 }} />
             <Text style={[styles.headerTitle, { color: tc.text }]}>User Manual</Text>
             <TouchableOpacity
               style={[styles.doneBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}
@@ -142,24 +222,38 @@ export default function SettingsScreen() {
   );
 }
 
-function Separator({ tc, isDark }: { tc: any; isDark: boolean }) {
-  return <View style={[styles.separator, { backgroundColor: isDark ? '#3F3F46' : '#E4E4E7' }]} />;
+function RowDivider({ isDark }: { isDark: boolean }) {
+  return (
+    <View style={[styles.rowDivider, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]} />
+  );
 }
 
-function SettingRow({ icon, title, subtitle, onPress, isDestructive, tc, isDark }: {
-  icon: any; title: string; subtitle?: string; onPress?: () => void;
-  isDestructive?: boolean; tc: any; isDark: boolean;
+function Row({
+  icon, iconColor, title, value, onPress, isDestructive, tc, isDark,
+}: {
+  icon: any; iconColor: string; title: string; value?: string;
+  onPress?: () => void; isDestructive?: boolean; tc: any; isDark: boolean;
 }) {
   return (
-    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={onPress ? 0.7 : 1}>
-      <View style={[styles.rowIcon, { backgroundColor: isDestructive ? `${Brand.pdfRed}15` : `${Brand.indigo}12` }]}>
-        <IconSymbol name={icon} size={16} color={isDestructive ? Brand.pdfRed : Brand.indigo} />
+    <TouchableOpacity
+      style={styles.row}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.65 : 1}
+    >
+      <View style={[styles.rowIconBox, { backgroundColor: `${iconColor}18` }]}>
+        <IconSymbol name={icon} size={15} color={iconColor} />
       </View>
-      <View style={styles.rowContent}>
-        <Text style={[styles.rowTitle, { color: isDestructive ? Brand.pdfRed : tc.text }]}>{title}</Text>
-        {subtitle && <Text style={[styles.rowSub, { color: tc.textSecondary }]}>{subtitle}</Text>}
+      <Text style={[styles.rowTitle, { color: isDestructive ? Brand.pdfRed : tc.text }]}>
+        {title}
+      </Text>
+      <View style={styles.rowRight}>
+        {value ? (
+          <Text style={[styles.rowValue, { color: tc.textSecondary }]}>{value}</Text>
+        ) : null}
+        {onPress ? (
+          <IconSymbol name="chevron.right" size={12} color={tc.textSecondary} style={{ opacity: 0.35 }} />
+        ) : null}
       </View>
-      {onPress && <IconSymbol name="chevron.right" size={13} color={tc.textSecondary} style={{ opacity: 0.3 }} />}
     </TouchableOpacity>
   );
 }
@@ -168,10 +262,13 @@ function ManualCard({ title, icon, color, description, steps, tc, isDark }: {
   title: string; icon: any; color: string; description: string; steps: string[]; tc: any; isDark: boolean;
 }) {
   return (
-    <View style={[styles.manualCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
+    <View style={[styles.manualCard, {
+      backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+      borderColor: isDark ? '#27272A' : '#F4F4F5',
+    }]}>
       <View style={styles.manualCardHeader}>
-        <View style={[styles.manualCardIcon, { backgroundColor: `${color}15` }]}>
-          <IconSymbol name={icon} size={16} color={color} />
+        <View style={[styles.manualCardIcon, { backgroundColor: `${color}18` }]}>
+          <IconSymbol name={icon} size={15} color={color} />
         </View>
         <Text style={[styles.manualCardTitle, { color: tc.text }]}>{title}</Text>
       </View>
@@ -193,7 +290,7 @@ const MANUAL_SECTIONS = [
     color: Brand.indigo,
     description: 'How large image batches are handled safely.',
     steps: [
-      'Images are resized to 750px width before conversion.',
+      'Images are resized to 750 px width before conversion.',
       'Sequential processing keeps RAM low even for 100+ pages.',
       'For batches over 150 images, split into two documents.',
     ],
@@ -201,7 +298,7 @@ const MANUAL_SECTIONS = [
   {
     title: 'Privacy',
     icon: 'lock.fill' as const,
-    color: Brand.emerald,
+    color: '#34C759',
     description: 'Your data never leaves your device.',
     steps: [
       '100% offline — no cloud, no tracking, no servers.',
@@ -211,7 +308,7 @@ const MANUAL_SECTIONS = [
   },
   {
     title: 'Using the Draft Editor',
-    icon: 'paintbrush' as const,
+    icon: 'paintbrush.fill' as const,
     color: Brand.pdfRed,
     description: 'Get the most out of the editor.',
     steps: [
@@ -235,6 +332,7 @@ const MANUAL_SECTIONS = [
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -243,49 +341,86 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  backBtn: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
-  doneBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  headerTitle: { fontSize: 17, fontWeight: '600', letterSpacing: -0.2 },
+  backBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  doneBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 9 },
   doneBtnText: { fontSize: 14, fontWeight: '500' },
 
-  scroll: { padding: 20, gap: 4 },
+  scroll: { paddingHorizontal: 20, paddingTop: 24, gap: 0 },
 
-  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  statCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 16,
-    gap: 4,
+  storageCard: {
+    flexDirection: 'row',
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    marginBottom: 28,
   },
-  statValue: { fontSize: 28, fontWeight: '700', letterSpacing: -1 },
-  statLabel: { fontSize: 12, fontWeight: '500' },
+  storageStat: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 4,
+  },
+  storageNumber: { fontSize: 26, fontWeight: '700', letterSpacing: -0.8 },
+  storageUnit: { fontSize: 14, fontWeight: '500' },
+  storageLabel: { fontSize: 12, fontWeight: '500' },
+  storageDivider: { width: StyleSheet.hairlineWidth },
+  refreshIconBox: {
+    width: 32, height: 32, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 2,
+  },
 
-  groupLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8, marginTop: 20, marginLeft: 2 },
+  groupLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+    marginBottom: 8,
+    marginLeft: 2,
+  },
   group: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
+    marginBottom: 24,
   },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 56 },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-  rowIcon: { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  rowContent: { flex: 1, gap: 2 },
-  rowTitle: { fontSize: 15, fontWeight: '500' },
-  rowSub: { fontSize: 12, fontWeight: '400' },
+  rowDivider: { height: StyleSheet.hairlineWidth, marginLeft: 54 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  rowIconBox: {
+    width: 32, height: 32, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  rowTitle: { flex: 1, fontSize: 15, fontWeight: '500' },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowValue: { fontSize: 14, fontWeight: '400' },
 
-  footer: { marginTop: 32, alignItems: 'center' },
-  footerText: { fontSize: 12, fontWeight: '400' },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  footerDot: { width: 6, height: 6, borderRadius: 3 },
+  footerText: { fontSize: 14, fontWeight: '600', letterSpacing: -0.2 },
 
-  manualScroll: { padding: 20, gap: 12, paddingBottom: 40 },
+  manualScroll: { padding: 20, gap: 12, paddingBottom: 48 },
   manualCard: {
-    borderRadius: 14,
-    padding: 16,
-    gap: 10,
+    borderRadius: 14, padding: 16, gap: 10,
     borderWidth: StyleSheet.hairlineWidth,
   },
   manualCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  manualCardIcon: { width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  manualCardIcon: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   manualCardTitle: { fontSize: 15, fontWeight: '600' },
   manualCardDesc: { fontSize: 13, lineHeight: 19, fontWeight: '400' },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
