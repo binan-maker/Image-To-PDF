@@ -257,29 +257,34 @@ export default function HomeScreen() {
     } catch { setIsSelecting(false); setIsPreparingDraft(false); Alert.alert('Error', 'Could not load images.'); }
   };
 
+  // expo-print ignores CSS @page size — dimensions and margins must be passed
+  // as printToFileAsync params (points: 1mm = 2.8346pt).
   const buildPdfHtml = (b64Images: string[]) => {
-    let sizeStr: string;
-    if (pageSize === 'a4') {
-      sizeStr = orientation === 'portrait' ? '210mm 297mm' : '297mm 210mm';
-    } else if (pageSize === 'letter') {
-      sizeStr = orientation === 'portrait' ? '215.9mm 279.4mm' : '279.4mm 215.9mm';
-    } else {
-      sizeStr = 'auto';
-    }
-    const marginStr = margin === 'none' ? '0' : margin === 'small' ? '8mm' : '20mm';
-    const pageStyle = pageSize === 'fit'
-      ? 'width:100%;display:block;page-break-after:always;text-align:center'
-      : 'width:100vw;height:100vh;display:flex;justify-content:center;align-items:center;page-break-after:always;overflow:hidden';
-    const imgStyle = pageSize === 'fit'
-      ? 'max-width:100%;height:auto;display:block;margin:0 auto'
-      : 'max-width:96%;max-height:96%;object-fit:contain';
-    const pages = b64Images.map(b64 => `<div class="page"><img src="data:image/jpeg;base64,${b64}" /></div>`).join('');
+    const pages = b64Images
+      .map(b64 => `<div class="page"><img src="data:image/jpeg;base64,${b64}" /></div>`)
+      .join('');
     return `<!DOCTYPE html><html><head><style>
-      @page{size:${sizeStr};margin:${marginStr}}
+      *{box-sizing:border-box}
       body{margin:0;padding:0;background:#fff}
-      .page{${pageStyle}}
-      img{${imgStyle}}
+      .page{width:100%;display:flex;justify-content:center;align-items:center;page-break-after:always;min-height:98vh}
+      img{max-width:100%;max-height:98vh;object-fit:contain;display:block}
     </style></head><body>${pages}</body></html>`;
+  };
+
+  // Returns width, height (in pt) and margins (in pt) for printToFileAsync.
+  const getPrintParams = (imgW: number, imgH: number) => {
+    const MM = 2.8346;
+    let w: number, h: number;
+    if (pageSize === 'a4') {
+      w = Math.round(210 * MM); h = Math.round(297 * MM);
+    } else if (pageSize === 'letter') {
+      w = Math.round(215.9 * MM); h = Math.round(279.4 * MM);
+    } else {
+      w = imgW; h = imgH;
+    }
+    if (orientation === 'landscape' && pageSize !== 'fit') [w, h] = [h, w];
+    const mPt = margin === 'none' ? 0 : margin === 'small' ? Math.round(8 * MM) : Math.round(20 * MM);
+    return { width: w, height: h, margins: { top: mPt, right: mPt, bottom: mPt, left: mPt } };
   };
 
   const generatePdf = async () => {
@@ -288,12 +293,17 @@ export default function HomeScreen() {
     }
     setIsProcessing(true);
     const dir = FileSystem.documentDirectory;
-    if (!dir) { setIsProcessing(false); return; }
+    if (!dir) {
+      setIsProcessing(false);
+      Alert.alert('Error', 'File storage is not available on this platform.');
+      return;
+    }
     const baseName = (pdfName.trim() || `Doc_${Date.now()}`).replace(/[^a-z0-9._-]/gi, '_');
 
     try {
       if (mergeAll) {
         const b64Images: string[] = [];
+        let printParams = { width: 595, height: 842, margins: { top: 0, right: 0, bottom: 0, left: 0 } };
         let firstThumbUri = '';
         for (let i = 0; i < selectedImages.length; i++) {
           setProgressMsg(`Optimizing ${i + 1} of ${selectedImages.length}…`);
@@ -302,11 +312,14 @@ export default function HomeScreen() {
             { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
           );
           b64Images.push(r.base64 ?? '');
-          if (i === 0) firstThumbUri = r.uri;
+          if (i === 0) {
+            firstThumbUri = r.uri;
+            printParams = getPrintParams(r.width, r.height);
+          }
           if (i % 15 === 0 && Platform.OS !== 'web') await new Promise(res => setTimeout(res, 50));
         }
         setProgressMsg('Building PDF…');
-        const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml(b64Images) });
+        const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml(b64Images), ...printParams });
         const dest = `${dir}${baseName}.pdf`;
         await FileSystem.copyAsync({ from: tmp, to: dest });
         if (firstThumbUri) await FileSystem.copyAsync({ from: firstThumbUri, to: dest.replace('.pdf', '.jpg') });
@@ -317,7 +330,8 @@ export default function HomeScreen() {
             selectedImages[i], [{ resize: { width: 750 } }],
             { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
           );
-          const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml([r.base64 ?? '']) });
+          const printParams = getPrintParams(r.width, r.height);
+          const { uri: tmp } = await Print.printToFileAsync({ html: buildPdfHtml([r.base64 ?? '']), ...printParams });
           const suffix = selectedImages.length > 1 ? `_${i + 1}` : '';
           const dest = `${dir}${baseName}${suffix}.pdf`;
           await FileSystem.copyAsync({ from: tmp, to: dest });
@@ -330,7 +344,7 @@ export default function HomeScreen() {
       setSelectedImages([]);
     } catch (e: any) {
       console.error(e);
-      Alert.alert('Error', 'Could not create PDF. Try fewer images or close background apps.');
+      Alert.alert('Error', e?.message ?? 'Could not create PDF. Try fewer images or close background apps.');
     } finally { setIsProcessing(false); setProgressMsg(''); }
   };
 
