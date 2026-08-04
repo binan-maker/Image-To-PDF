@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -220,7 +219,6 @@ export default function HomeScreen() {
         mediaTypes: ['images'], allowsMultipleSelection: true, quality: 0.7,
       });
       if (result.canceled) { setIsSelecting(false); return; }
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (!appending) setPdfName(`PDF_${Math.floor(100000 + Math.random() * 900000)}`);
       const uris = result.assets.map(a => a.uri);
       setShowDraftModal(true);
