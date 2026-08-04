@@ -26,7 +26,6 @@ export default function SettingsScreen() {
 
   const [storageSize, setStorageSize] = useState('0.00');
   const [docCount, setDocCount] = useState(0);
-  const [showManual, setShowManual] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
 
   const calcStorage = async () => {
@@ -135,14 +134,6 @@ export default function SettingsScreen() {
             value={colorScheme === 'dark' ? 'Dark' : 'Light'}
             tc={tc} isDark={isDark}
           />
-          <RowDivider isDark={isDark} />
-          <Row
-            icon="info.circle.fill"
-            iconColor={Brand.indigo}
-            title="User Manual"
-            tc={tc} isDark={isDark}
-            onPress={() => setShowManual(true)}
-          />
         </View>
 
         {/* Danger zone */}
@@ -173,14 +164,6 @@ export default function SettingsScreen() {
             iconColor={Brand.indigo}
             title="Version"
             value="1.0.2"
-            tc={tc} isDark={isDark}
-          />
-          <RowDivider isDark={isDark} />
-          <Row
-            icon="lock.fill"
-            iconColor="#34C759"
-            title="Privacy"
-            value="100% offline"
             tc={tc} isDark={isDark}
           />
           <RowDivider isDark={isDark} />
@@ -254,31 +237,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* Manual modal */}
-      <Modal visible={showManual} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowManual(false)}>
-        <View style={[styles.root, { backgroundColor: tc.background }]}>
-          <View style={[styles.header, {
-            paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,
-            backgroundColor: isDark ? '#09090B' : '#FFFFFF',
-            borderBottomColor: isDark ? '#27272A' : '#F4F4F5',
-          }]}>
-            <View style={{ width: 36 }} />
-            <Text style={[styles.headerTitle, { color: tc.text }]}>User Manual</Text>
-            <TouchableOpacity
-              style={[styles.doneBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}
-              onPress={() => setShowManual(false)}
-            >
-              <Text style={[styles.doneBtnText, { color: tc.textSecondary }]}>Done</Text>
-            </TouchableOpacity>
-          </View>
 
-          <ScrollView contentContainerStyle={styles.manualScroll} showsVerticalScrollIndicator={false}>
-            {MANUAL_SECTIONS.map((s, i) => (
-              <ManualCard key={i} {...s} tc={tc} isDark={isDark} />
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -316,31 +275,6 @@ function Row({
         ) : null}
       </View>
     </TouchableOpacity>
-  );
-}
-
-function ManualCard({ title, icon, color, description, steps, tc, isDark }: {
-  title: string; icon: any; color: string; description: string; steps: string[]; tc: any; isDark: boolean;
-}) {
-  return (
-    <View style={[styles.manualCard, {
-      backgroundColor: isDark ? '#18181B' : '#FFFFFF',
-      borderColor: isDark ? '#27272A' : '#F4F4F5',
-    }]}>
-      <View style={styles.manualCardHeader}>
-        <View style={[styles.manualCardIcon, { backgroundColor: `${color}18` }]}>
-          <IconSymbol name={icon} size={15} color={color} />
-        </View>
-        <Text style={[styles.manualCardTitle, { color: tc.text }]}>{title}</Text>
-      </View>
-      <Text style={[styles.manualCardDesc, { color: tc.textSecondary }]}>{description}</Text>
-      {steps.map((step, i) => (
-        <View key={i} style={styles.stepRow}>
-          <View style={[styles.stepDot, { backgroundColor: color }]} />
-          <Text style={[styles.stepText, { color: tc.text }]}>{step}</Text>
-        </View>
-      ))}
-    </View>
   );
 }
 
@@ -401,52 +335,6 @@ const PRIVACY_SECTIONS = [
   },
 ];
 
-const MANUAL_SECTIONS = [
-  {
-    title: 'Scale & Stability',
-    icon: 'slider.horizontal.3' as const,
-    color: Brand.indigo,
-    description: 'How large image batches are handled safely.',
-    steps: [
-      'Images are resized to 750 px width before conversion.',
-      'Sequential processing keeps RAM low even for 100+ pages.',
-      'For batches over 150 images, split into two documents.',
-    ],
-  },
-  {
-    title: 'Privacy',
-    icon: 'lock.fill' as const,
-    color: '#34C759',
-    description: 'Your data never leaves your device.',
-    steps: [
-      '100% offline — no cloud, no tracking, no servers.',
-      'PDF generation runs entirely in a local sandbox.',
-      'Temp files are deleted immediately after conversion.',
-    ],
-  },
-  {
-    title: 'Using the Draft Editor',
-    icon: 'paintbrush.fill' as const,
-    color: Brand.pdfRed,
-    description: 'Get the most out of the editor.',
-    steps: [
-      'Long-press a page thumbnail to drag and reorder.',
-      'Tap + in the draft header to append more images.',
-      'Edit the document title before generating.',
-    ],
-  },
-  {
-    title: 'Troubleshooting',
-    icon: 'exclamationmark.triangle.fill' as const,
-    color: Brand.amber,
-    description: 'Common issues and fixes.',
-    steps: [
-      'Blank PDF? Restart and try with fewer images.',
-      '100+ images can take 30–60s on older devices.',
-      "Can't open PDF? Ensure you have a PDF viewer installed.",
-    ],
-  },
-];
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -552,16 +440,4 @@ const styles = StyleSheet.create({
   privacyFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16, marginTop: 4 },
   privacyFooterText: { fontSize: 12, lineHeight: 18, fontWeight: '400', textAlign: 'center' },
 
-  manualScroll: { padding: 20, gap: 12, paddingBottom: 48 },
-  manualCard: {
-    borderRadius: 14, padding: 16, gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  manualCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  manualCardIcon: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  manualCardTitle: { fontSize: 15, fontWeight: '600' },
-  manualCardDesc: { fontSize: 13, lineHeight: 19, fontWeight: '400' },
-  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  stepDot: { width: 5, height: 5, borderRadius: 3, marginTop: 6 },
-  stepText: { flex: 1, fontSize: 13, fontWeight: '400', lineHeight: 19 },
 });
