@@ -1,0 +1,22 @@
+VERDICT: APPROVED_WITH_COMMENTS
+
+The changed implementation correctly wires the draft-modal settings into PDF generation for both active route variants, supports merged and per-image output, and the configured Expo web workflow now uses the installed local CLI. TypeScript type-checking succeeds and the diff has no whitespace errors.
+
+The repository lint command still fails (four existing lint errors, including in the changed tabs screen); the new settings code itself does not introduce a type-check failure. Resolve the lint errors before treating lint as a required CI gate.
+
+Security: none observed.
+
+Next actions: run the configured web workflow and manually exercise each setting combination, particularly merge-off output naming; clean the existing lint errors if the project requires a passing lint gate.
+
+VERDICT: APPROVED_WITH_COMMENTS
+VERDICT: APPROVED_WITH_COMMENTS
+
+The changed implementation correctly wires the draft-modal settings into PDF generation for both active route variants, supports merged and per-image output, and the configured Expo web workflow now uses the installed local CLI. TypeScript type-checking succeeds and the diff has no whitespace errors.
+
+The repository lint command still fails (four existing lint errors, including in the changed tabs screen); the new settings code itself does not introduce a type-check failure. Resolve the lint errors before treating lint as a required CI gate.
+
+Security: none observed.
+
+Next actions: run the configured web workflow and manually exercise each setting combination, particularly merge-off output naming; clean the existing lint errors if the project requires a passing lint gate.
+
+VERDICT: APPROVED_WITH_COMMENTS
