@@ -36,6 +36,8 @@ const MAPPING = {
   'pencil': 'edit',
   'rotate.right': 'rotate-right',
   'paintbrush': 'brush',
+  'paintbrush.fill': 'brush',
+  'arrow.clockwise': 'refresh',
   'aspectratio': 'aspect-ratio',
   'slider.horizontal.3': 'tune',
   'checkmark': 'check',

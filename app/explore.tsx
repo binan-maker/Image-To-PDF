@@ -27,6 +27,7 @@ export default function SettingsScreen() {
   const [storageSize, setStorageSize] = useState('0.00');
   const [docCount, setDocCount] = useState(0);
   const [showManual, setShowManual] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   const calcStorage = async () => {
     try {
@@ -182,6 +183,14 @@ export default function SettingsScreen() {
             value="100% offline"
             tc={tc} isDark={isDark}
           />
+          <RowDivider isDark={isDark} />
+          <Row
+            icon="doc.text.fill"
+            iconColor={Brand.indigo}
+            title="Privacy Policy"
+            tc={tc} isDark={isDark}
+            onPress={() => setShowPrivacy(true)}
+          />
         </View>
 
         {/* Footer wordmark */}
@@ -192,6 +201,58 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Privacy Policy modal */}
+      <Modal visible={showPrivacy} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowPrivacy(false)}>
+        <View style={[styles.root, { backgroundColor: tc.background }]}>
+          <View style={[styles.header, {
+            paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,
+            backgroundColor: isDark ? '#09090B' : '#FFFFFF',
+            borderBottomColor: isDark ? '#27272A' : '#F4F4F5',
+          }]}>
+            <View style={{ width: 36 }} />
+            <Text style={[styles.headerTitle, { color: tc.text }]}>Privacy Policy</Text>
+            <TouchableOpacity
+              style={[styles.doneBtn, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}
+              onPress={() => setShowPrivacy(false)}
+            >
+              <Text style={[styles.doneBtnText, { color: tc.textSecondary }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.privacyScroll} showsVerticalScrollIndicator={false}>
+            {/* Acceptance notice */}
+            <View style={[styles.privacyNotice, { backgroundColor: `${Brand.indigo}12`, borderColor: `${Brand.indigo}30` }]}>
+              <IconSymbol name="info.circle.fill" size={15} color={Brand.indigo} />
+              <Text style={[styles.privacyNoticeText, { color: Brand.indigo }]}>
+                By using imgPDF you agree to this Privacy Policy.
+              </Text>
+            </View>
+
+            <Text style={[styles.privacyUpdated, { color: tc.textSecondary }]}>Last updated: July 2025</Text>
+
+            {PRIVACY_SECTIONS.map((section, i) => (
+              <View key={i} style={styles.privacySection}>
+                <View style={styles.privacySectionHeader}>
+                  <View style={[styles.privacySectionIconBox, { backgroundColor: `${section.color}18` }]}>
+                    <IconSymbol name={section.icon as any} size={14} color={section.color} />
+                  </View>
+                  <Text style={[styles.privacySectionTitle, { color: tc.text }]}>{section.title}</Text>
+                </View>
+                {section.paragraphs.map((p, j) => (
+                  <Text key={j} style={[styles.privacyParagraph, { color: tc.textSecondary }]}>{p}</Text>
+                ))}
+              </View>
+            ))}
+
+            <View style={[styles.privacyFooter, { borderColor: isDark ? '#27272A' : '#F4F4F5' }]}>
+              <Text style={[styles.privacyFooterText, { color: tc.textSecondary }]}>
+                If you have questions about this policy, please contact us through the app store listing.
+              </Text>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* Manual modal */}
       <Modal visible={showManual} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowManual(false)}>
@@ -282,6 +343,63 @@ function ManualCard({ title, icon, color, description, steps, tc, isDark }: {
     </View>
   );
 }
+
+const PRIVACY_SECTIONS = [
+  {
+    title: 'Overview',
+    icon: 'info.circle.fill',
+    color: Brand.indigo,
+    paragraphs: [
+      'imgPDF is a completely offline image-to-PDF converter. This policy explains how the app handles your data and what responsibilities we accept — and do not accept — in relation to your files.',
+      'By opening and using imgPDF, you confirm that you have read and agreed to this Privacy Policy.',
+    ],
+  },
+  {
+    title: 'No Data Collection',
+    icon: 'lock.fill',
+    color: '#34C759',
+    paragraphs: [
+      'imgPDF does not collect, transmit, store, or share any personal information or file data. All processing — image reading, compression, and PDF generation — happens entirely on your device.',
+      'We have no servers, no accounts, no analytics, and no third-party SDKs that communicate over the network. Your images and documents never leave your device.',
+    ],
+  },
+  {
+    title: 'File Storage & Loss',
+    icon: 'doc.text.fill',
+    color: Brand.pdfRed,
+    paragraphs: [
+      'PDFs created by imgPDF are saved to your device\'s local storage. We are not responsible for any loss, corruption, or accidental deletion of PDF files or source images, whether caused by app errors, device failures, OS updates, storage issues, or any other circumstance.',
+      'We strongly recommend that you back up important PDFs to a cloud service or external storage immediately after creation. imgPDF provides a "Clear All PDFs" action that permanently removes all stored documents — this action cannot be undone.',
+      'imgPDF is provided as-is without any guarantee of data preservation or file integrity beyond the current session.',
+    ],
+  },
+  {
+    title: 'Permissions',
+    icon: 'eye.fill',
+    color: Brand.amber,
+    paragraphs: [
+      'imgPDF requests access to your photo library solely to allow you to select images for conversion. This permission is used only when you actively choose to pick images. We do not scan your library in the background or access any media you have not explicitly selected.',
+      'On iOS, permission is requested at the moment you tap "Select Images". You may revoke this permission at any time in your device Settings.',
+    ],
+  },
+  {
+    title: 'No Legal Liability',
+    icon: 'exclamationmark.triangle.fill',
+    color: Brand.amber,
+    paragraphs: [
+      'imgPDF is a simple utility with no network connectivity, no user accounts, and no external services. To the fullest extent permitted by applicable law, the developers of imgPDF accept no liability for: any loss of files or data; any damage arising from use or inability to use the app; any outcomes resulting from PDFs created by the app.',
+      'This app does not handle sensitive, financial, medical, or legally binding documents in any special way. Users are solely responsible for verifying the accuracy and completeness of any documents they create.',
+    ],
+  },
+  {
+    title: 'Changes to This Policy',
+    icon: 'paintbrush',
+    color: Brand.indigo,
+    paragraphs: [
+      'We may update this Privacy Policy from time to time. Any changes will be reflected in an updated version of the app. Continued use of imgPDF after an update constitutes acceptance of the revised policy.',
+    ],
+  },
+];
 
 const MANUAL_SECTIONS = [
   {
@@ -413,6 +531,26 @@ const styles = StyleSheet.create({
   },
   footerDot: { width: 6, height: 6, borderRadius: 3 },
   footerText: { fontSize: 14, fontWeight: '600', letterSpacing: -0.2 },
+
+  privacyScroll: { padding: 20, gap: 0, paddingBottom: 48 },
+  privacyNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 16,
+  },
+  privacyNoticeText: { flex: 1, fontSize: 13, fontWeight: '500', lineHeight: 18 },
+  privacyUpdated: { fontSize: 12, fontWeight: '400', marginBottom: 20 },
+  privacySection: { marginBottom: 22 },
+  privacySectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 8 },
+  privacySectionIconBox: { width: 28, height: 28, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
+  privacySectionTitle: { fontSize: 15, fontWeight: '600' },
+  privacyParagraph: { fontSize: 13, lineHeight: 20, fontWeight: '400', marginBottom: 8 },
+  privacyFooter: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16, marginTop: 4 },
+  privacyFooterText: { fontSize: 12, lineHeight: 18, fontWeight: '400', textAlign: 'center' },
 
   manualScroll: { padding: 20, gap: 12, paddingBottom: 48 },
   manualCard: {
