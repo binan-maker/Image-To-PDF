@@ -412,23 +412,21 @@ export default function HomeScreen() {
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadLibrary(false)} tintColor={Brand.indigo} />}
           ListHeaderComponent={
             <View>
-              {/* Hero */}
-              <View style={styles.hero}>
-                <Text style={[styles.heroTitle, { color: tc.text }]}>Images to PDF</Text>
-                <Text style={[styles.heroSub, { color: tc.textSecondary }]}>
-                  Pick photos, arrange them, and export a PDF — entirely on‑device.
-                </Text>
-
-                <TouchableOpacity
-                  style={[styles.ctaBtn, { backgroundColor: Brand.indigo }]}
-                  onPress={() => pickImages(false)}
-                  activeOpacity={0.85}
-                >
-                  <IconSymbol name="plus" size={18} color="#FFF" />
-                  <Text style={styles.ctaBtnText}>Select Images</Text>
-                </TouchableOpacity>
-
-                {pdfs.length > 0 && (
+              {pdfs.length > 0 ? (
+                /* Compact hero — only when library has content */
+                <View style={styles.hero}>
+                  <Text style={[styles.heroTitle, { color: tc.text }]}>Images to PDF</Text>
+                  <Text style={[styles.heroSub, { color: tc.textSecondary }]}>
+                    Pick photos, arrange them, and export a PDF — entirely on‑device.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.ctaBtn, { backgroundColor: Brand.indigo }]}
+                    onPress={() => pickImages(false)}
+                    activeOpacity={0.85}
+                  >
+                    <IconSymbol name="plus" size={18} color="#FFF" />
+                    <Text style={styles.ctaBtnText}>Select Images</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.ctaBtnSecondary, { borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}
                     onPress={() => setShowLibraryModal(true)}
@@ -439,11 +437,11 @@ export default function HomeScreen() {
                       <Text style={[styles.countBadgeText, { color: tc.textSecondary }]}>{pdfs.length}</Text>
                     </View>
                   </TouchableOpacity>
-                )}
-              </View>
+                </View>
+              ) : null}
 
-              {/* Section header */}
-              {(isLoadingLibrary || pdfs.length > 0) && (
+              {/* Section header — only when there are docs */}
+              {pdfs.length > 0 && (
                 <View style={styles.sectionRow}>
                   <Text style={[styles.sectionTitle, { color: tc.textSecondary }]}>Recent</Text>
                   {pdfs.length > 5 && (
@@ -457,9 +455,64 @@ export default function HomeScreen() {
           }
           ListEmptyComponent={
             isLoadingLibrary ? null : (
-              <View style={styles.emptyBox}>
-                <Text style={[styles.emptyTitle, { color: tc.textSecondary }]}>No PDFs yet</Text>
-                <Text style={[styles.emptySub, { color: tc.textSecondary }]}>Tap &quot;Select Images&quot; to create your first PDF</Text>
+              /* Full-screen onboarding when library is empty */
+              <View style={[styles.onboarding, { backgroundColor: tc.background }]}>
+                {/* Icon cluster */}
+                <View style={styles.onboardingIconRow}>
+                  <View style={[styles.onboardingIconBox, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
+                    <IconSymbol name="photo.on.rectangle.angled" size={28} color={Brand.indigo} />
+                  </View>
+                  <View style={styles.onboardingArrow}>
+                    <View style={[styles.onboardingArrowLine, { backgroundColor: isDark ? '#3F3F46' : '#D4D4D8' }]} />
+                    <View style={[styles.onboardingArrowHead, { borderLeftColor: isDark ? '#3F3F46' : '#D4D4D8' }]} />
+                  </View>
+                  <View style={[styles.onboardingIconBox, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
+                    <IconSymbol name="doc.text.fill" size={28} color={Brand.pdfRed} />
+                  </View>
+                </View>
+
+                <Text style={[styles.onboardingTitle, { color: tc.text }]}>
+                  Turn photos into PDFs
+                </Text>
+                <Text style={[styles.onboardingSub, { color: tc.textSecondary }]}>
+                  Select images from your library, arrange the pages, and export a clean PDF — all on‑device, no cloud needed.
+                </Text>
+
+                {/* Steps */}
+                <View style={styles.stepsContainer}>
+                  {[
+                    { num: '1', label: 'Pick images', desc: 'Choose one or many photos', icon: 'photo.on.rectangle.angled' as const, color: Brand.indigo },
+                    { num: '2', label: 'Arrange pages', desc: 'Drag to reorder', icon: 'rectangle.stack.fill' as const, color: Brand.amber },
+                    { num: '3', label: 'Export PDF', desc: 'Save or share instantly', icon: 'square.and.arrow.up' as const, color: Brand.pdfRed },
+                  ].map((step) => (
+                    <View key={step.num} style={[styles.stepCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? '#3F3F46' : '#E4E4E7' }]}>
+                      <View style={[styles.stepIconBox, { backgroundColor: `${step.color}15` }]}>
+                        <IconSymbol name={step.icon} size={18} color={step.color} />
+                      </View>
+                      <View style={styles.stepCardText}>
+                        <Text style={[styles.stepCardLabel, { color: tc.text }]}>{step.label}</Text>
+                        <Text style={[styles.stepCardDesc, { color: tc.textSecondary }]}>{step.desc}</Text>
+                      </View>
+                      <View style={[styles.stepNumBadge, { backgroundColor: isDark ? '#27272A' : '#F4F4F5' }]}>
+                        <Text style={[styles.stepNumText, { color: tc.textSecondary }]}>{step.num}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Primary CTA */}
+                <TouchableOpacity
+                  style={[styles.onboardingCta, { backgroundColor: Brand.indigo }]}
+                  onPress={() => pickImages(false)}
+                  activeOpacity={0.85}
+                >
+                  <IconSymbol name="plus" size={18} color="#FFF" />
+                  <Text style={styles.onboardingCtaText}>Get Started</Text>
+                </TouchableOpacity>
+
+                <Text style={[styles.onboardingHint, { color: tc.textSecondary }]}>
+                  100% offline · nothing leaves your device
+                </Text>
               </View>
             )
           }
@@ -736,6 +789,36 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: 'center', paddingVertical: 48, gap: 6 },
   emptyTitle: { fontSize: 15, fontWeight: '600' },
   emptySub: { fontSize: 13, textAlign: 'center', maxWidth: 260, lineHeight: 19, fontWeight: '400' },
+
+  onboarding: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 40, gap: 0 },
+  onboardingIconRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 0, marginBottom: 32 },
+  onboardingIconBox: { width: 72, height: 72, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  onboardingArrow: { flexDirection: 'row', alignItems: 'center', width: 44, paddingHorizontal: 4 },
+  onboardingArrowLine: { flex: 1, height: 1.5 },
+  onboardingArrowHead: {
+    width: 0, height: 0,
+    borderTopWidth: 5, borderBottomWidth: 5, borderLeftWidth: 8,
+    borderTopColor: 'transparent', borderBottomColor: 'transparent',
+  },
+  onboardingTitle: { fontSize: 28, fontWeight: '700', letterSpacing: -0.6, textAlign: 'center', marginBottom: 10 },
+  onboardingSub: { fontSize: 15, lineHeight: 23, fontWeight: '400', textAlign: 'center', marginBottom: 36 },
+  stepsContainer: { gap: 10, marginBottom: 32 },
+  stepCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, padding: 14, borderWidth: StyleSheet.hairlineWidth,
+  },
+  stepIconBox: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  stepCardText: { flex: 1, gap: 2 },
+  stepCardLabel: { fontSize: 15, fontWeight: '600' },
+  stepCardDesc: { fontSize: 12, fontWeight: '400' },
+  stepNumBadge: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  stepNumText: { fontSize: 12, fontWeight: '700' },
+  onboardingCta: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 16, borderRadius: 14, marginBottom: 16,
+  },
+  onboardingCtaText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
+  onboardingHint: { fontSize: 12, fontWeight: '400', textAlign: 'center' },
 
   ctxMenu: {
     position: 'absolute',
