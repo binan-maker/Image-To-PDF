@@ -1009,7 +1009,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 12,
   },
-  docThumbBox: { width: 44, height: 52, borderRadius: 8, overflow: 'hidden', backgroundColor: '#F4F4F5' },
+  docThumbBox: { width: 44, height: 52, borderRadius: 8, overflow: 'hidden', backgroundColor: '#F4F4F5', alignItems: 'center', justifyContent: 'center' },
   pdfBadgeSmall: {
     position: 'absolute', bottom: 2, right: 2,
     backgroundColor: Brand.pdfRed, borderRadius: 3,

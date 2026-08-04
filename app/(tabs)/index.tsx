@@ -962,7 +962,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  docThumbBox: { width: 48, height: 56, borderRadius: 10, overflow: 'hidden', backgroundColor: '#F1F5F9' },
+  docThumbBox: { width: 48, height: 56, borderRadius: 10, overflow: 'hidden', backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
   pdfBadgeSmall: {
     position: 'absolute', bottom: 3, right: 3,
     backgroundColor: Brand.pdfRed, borderRadius: 3,
