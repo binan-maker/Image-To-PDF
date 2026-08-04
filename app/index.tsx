@@ -553,7 +553,12 @@ export default function HomeScreen() {
       </View>
 
       {/* Draft modal */}
-      <Modal visible={showDraftModal} animationType="slide" presentationStyle="fullScreen">
+      <Modal
+        visible={showDraftModal}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => { setShowDraftModal(false); setIsProcessing(false); }}
+      >
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={[styles.root, { backgroundColor: tc.background }]}>
             <View style={[styles.modalHeader, {
@@ -645,7 +650,12 @@ export default function HomeScreen() {
       </Modal>
 
       {/* Library modal */}
-      <Modal visible={showLibraryModal} animationType="slide" presentationStyle="pageSheet">
+      <Modal
+        visible={showLibraryModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => { setShowLibraryModal(false); setLibSearchQuery(''); }}
+      >
         <View style={[styles.root, { backgroundColor: tc.background }]}>
           <View style={[styles.modalHeader, {
             paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,

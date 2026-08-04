@@ -194,7 +194,7 @@ export default function SettingsScreen() {
       </ScrollView>
 
       {/* Manual modal */}
-      <Modal visible={showManual} animationType="slide" presentationStyle="pageSheet">
+      <Modal visible={showManual} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowManual(false)}>
         <View style={[styles.root, { backgroundColor: tc.background }]}>
           <View style={[styles.header, {
             paddingTop: Platform.OS === 'web' ? 20 : insets.top + 12,
