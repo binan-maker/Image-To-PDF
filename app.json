@@ -2,7 +2,7 @@
   "expo": {
     "name": "imgpdf",
     "slug": "imgpdf",
-    "version": "1.0.0",
+    "version": "1.0.13",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "imgpdf",
@@ -27,7 +27,16 @@
     "plugins": [
       "expo-router",
       [
-        
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
       ]
     ],
     "experiments": {
