@@ -6,10 +6,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  NativeModules,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +34,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [stage, setStage] = useState<Stage>('idle');
   const [progress, setProgress] = useState(0);
+  const [password, setPassword] = useState('');
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState<number>();
   const [outputUri, setOutputUri] = useState<string>();
@@ -63,6 +66,7 @@ export default function HomeScreen() {
     setProgress(0);
     setFileName('');
     setFileSize(undefined);
+    setPassword('');
     setOutputUri(undefined);
   };
 
@@ -82,25 +86,33 @@ export default function HomeScreen() {
       setProgress(12);
       await waitForUi();
 
-      const bytes = await (await fetch(asset.uri)).arrayBuffer();
-      setProgress(34);
-      await waitForUi();
-      const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
-      setProgress(68);
-      await waitForUi();
-      const unlockedBytes = await pdf.save({ useObjectStreams: false });
-      setProgress(92);
-
-      if (Platform.OS === 'web') {
-        const blob = new Blob([unlockedBytes], { type: 'application/pdf' });
-        setOutputUri(URL.createObjectURL(blob));
-      } else {
-        const base64 = arrayBufferToBase64(unlockedBytes);
-        const destination = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory}unlocked-${Date.now()}.pdf`;
-        await FileSystem.writeAsStringAsync(destination, base64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+      if (Platform.OS === 'android' && NativeModules.PdfUnlocker) {
+        setProgress(30);
+        await waitForUi();
+        const destination = await NativeModules.PdfUnlocker.unlockPdf(asset.uri, password.trim());
+        setProgress(92);
         setOutputUri(destination);
+      } else {
+        const bytes = await (await fetch(asset.uri)).arrayBuffer();
+        setProgress(34);
+        await waitForUi();
+        const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        setProgress(68);
+        await waitForUi();
+        const unlockedBytes = await pdf.save({ useObjectStreams: false });
+        setProgress(92);
+
+        const blob = new Blob([unlockedBytes], { type: 'application/pdf' });
+        if (Platform.OS === 'web') {
+          setOutputUri(URL.createObjectURL(blob));
+        } else {
+          const base64 = arrayBufferToBase64(unlockedBytes);
+          const destination = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory}unlocked-${Date.now()}.pdf`;
+          await FileSystem.writeAsStringAsync(destination, base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          setOutputUri(destination);
+        }
       }
       setProgress(100);
       setStage('success');
@@ -202,6 +214,28 @@ export default function HomeScreen() {
           </Pressable>
         )}
 
+        {stage === 'idle' ? (
+          <View style={styles.passwordSection}>
+            <View style={styles.passwordLabelRow}>
+              <Text style={[styles.passwordLabel, { color: tc.text }]}>PDF password</Text>
+              <Text style={[styles.optionalLabel, { color: tc.textSecondary }]}>Optional</Text>
+            </View>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter password if the PDF asks for one"
+              placeholderTextColor={isDark ? '#71717A' : '#94A3B8'}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[styles.passwordInput, { color: tc.text, backgroundColor: tc.surface, borderColor: tc.border }]}
+            />
+            <Text style={[styles.passwordHint, { color: tc.textSecondary }]}>
+              Leave blank for PDFs with permission restrictions only.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.privacyLine}>
           <IconSymbol name="lock.fill" size={13} color={tc.textSecondary} />
           <Text style={[styles.privacyText, { color: tc.textSecondary }]}>
@@ -245,6 +279,12 @@ const styles = StyleSheet.create({
   uploadIcon: { width: 68, height: 68, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   uploadTitle: { fontSize: 20, fontWeight: '800', marginBottom: 8 },
   uploadHint: { fontSize: 14, textAlign: 'center' },
+  passwordSection: { width: '100%', marginTop: 20 },
+  passwordLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  passwordLabel: { fontSize: 14, fontWeight: '800' },
+  optionalLabel: { fontSize: 12 },
+  passwordInput: { height: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, fontSize: 14 },
+  passwordHint: { fontSize: 12, marginTop: 7 },
   progressWrap: { width: '100%', maxWidth: 340, marginTop: 24 },
   progressTrack: { height: 8, width: '100%', borderRadius: 10, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 10, backgroundColor: Brand.indigo },
