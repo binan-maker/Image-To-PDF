@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "imgpdf",
-    "slug": "imgpdf",
+    "name": "PDF Unlocker",
+    "slug": "pdf-unlocker",
     "version": "1.0.13",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "imgpdf",
+    "scheme": "pdfunlocker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {

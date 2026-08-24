@@ -1,0 +1,1 @@
+- [Expo PDF processing](pdf-processing.md) — Metro needs the CommonJS pdf-lib path because its default tslib ESM resolution crashes the web bundle.

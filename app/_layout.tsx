@@ -14,9 +14,9 @@ function BrandHeader() {
   return (
     <View style={styles.brandRow}>
       <View style={[styles.brandDot, { backgroundColor: Brand.indigo }]} />
-      <Text style={[styles.brandImg, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>img</Text>
-      <Text style={[styles.brandArrow, { color: isDark ? '#52525B' : '#A1A1AA' }]}>→</Text>
-      <Text style={[styles.brandPdf, { color: Brand.pdfRed }]}>PDF</Text>
+      <Text style={[styles.brandImg, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>PDF</Text>
+      <Text style={[styles.brandArrow, { color: isDark ? '#52525B' : '#A1A1AA' }]}>/</Text>
+      <Text style={[styles.brandPdf, { color: Brand.indigo }]}>Unlocker</Text>
     </View>
   );
 }
@@ -53,7 +53,6 @@ function RootLayoutInner() {
           options={{ headerShown: false }}
         />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </NavThemeProvider>

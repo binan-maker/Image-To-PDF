@@ -20,6 +20,7 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'chevron.left': 'chevron-left',
   'plus': 'add',
   'doc.text.fill': 'description',
   'info.circle.fill': 'info',
@@ -41,7 +42,10 @@ const MAPPING = {
   'aspectratio': 'aspect-ratio',
   'slider.horizontal.3': 'tune',
   'checkmark': 'check',
-  'magnifyingglass': 'search'
+  'magnifyingglass': 'search',
+  'sun.max.fill': 'wb-sunny',
+  'circle.lefthalf.filled': 'brightness-6',
+  'moon.fill': 'nightlight',
 } as IconMapping;
 
 /**

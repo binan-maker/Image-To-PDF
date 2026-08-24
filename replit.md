@@ -1,47 +1,25 @@
-# imgpdf — Image to PDF Converter
+# PDF Unlocker
 
 ## Overview
 
-An Expo React Native app that converts images to PDFs. Runs on web via Expo's web target.
+An Expo React Native app focused on unlocking PDF files and sharing the unlocked copy. The web target processes PDFs in the browser, and native targets use the device document picker and share sheet.
 
 ## Tech Stack
 
-- **Framework**: Expo (SDK ~54) with Expo Router (file-based routing)
+- **Framework**: Expo SDK 54 with Expo Router
 - **Language**: TypeScript
+- **PDF processing**: `pdf-lib`
 - **Platforms**: iOS, Android, Web
-- **State**: React hooks (local state)
-- **Styling**: React Native StyleSheet
-
-## Project Structure
-
-```
-app/
-  _layout.tsx         # Root layout (Stack navigator)
-  modal.tsx           # Modal screen
-  (tabs)/
-    _layout.tsx       # Tab layout
-    index.tsx         # Home tab
-    explore.tsx       # Explore tab
-components/           # Shared UI components
-constants/
-  theme.ts            # Theme/color constants
-hooks/                # Custom hooks (useColorScheme, etc.)
-assets/               # Images, icons, fonts
-```
+- **Theme**: Light, dark, and automatic system theme preferences
 
 ## Running the App
 
-The app runs on port 5000 via the "Start application" workflow:
+The app runs on port 5000 through the `Start application` workflow:
 
 ```bash
 PORT=5000 npx expo start --web --port 5000
 ```
 
-## Key Notes
+## Privacy
 
-- Expo web output is configured as "static" in app.json
-- React Compiler is enabled (experiments.reactCompiler: true)
-- New architecture is enabled (newArchEnabled: true)
-- Theme system: `context/theme-context.tsx` provides `ThemeProvider` + `useTheme()`. Default is device system theme; user can override to Light/Dark/Auto in Settings. Choice persists via `localStorage` (web) or a JSON file in `FileSystem.documentDirectory` (native).
-- `hooks/use-color-scheme.ts` and `hooks/use-color-scheme.web.ts` both delegate to `useTheme()` so all existing `useColorScheme()` calls automatically respect the user's preference.
-- Settings screen (`app/(tabs)/explore.tsx`) has a 3-way toggle: Light | Auto | Dark.
+PDF data is handled only during the active unlock flow. The web output uses a temporary Blob URL; native output uses the cache directory for sharing. The app clears its temporary output when the user starts over or leaves the session.
