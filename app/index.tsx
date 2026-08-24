@@ -31,6 +31,7 @@ export default function HomeScreen() {
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const [stage, setStage] = useState<Stage>('idle');
+  const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState<number>();
   const [outputUri, setOutputUri] = useState<string>();
@@ -40,14 +41,26 @@ export default function HomeScreen() {
     outputUriRef.current = outputUri;
   }, [outputUri]);
 
+  const removeTemporaryOutput = async (uri?: string) => {
+    if (!uri) return;
+    if (uri.startsWith('blob:')) URL.revokeObjectURL(uri);
+    else if (Platform.OS !== 'web') {
+      try {
+        await FileSystem.deleteAsync(uri, { idempotent: true });
+      } catch (error) {
+        console.warn('Could not clear temporary PDF', error);
+      }
+    }
+  };
+
   useEffect(() => () => {
-    const uri = outputUriRef.current;
-    if (uri?.startsWith('blob:')) URL.revokeObjectURL(uri);
+    void removeTemporaryOutput(outputUriRef.current);
   }, []);
 
   const reset = () => {
-    if (outputUri?.startsWith('blob:')) URL.revokeObjectURL(outputUri);
+    void removeTemporaryOutput(outputUri);
     setStage('idle');
+    setProgress(0);
     setFileName('');
     setFileSize(undefined);
     setOutputUri(undefined);
@@ -66,10 +79,17 @@ export default function HomeScreen() {
       setFileName(asset.name);
       setFileSize(asset.size);
       setStage('unlocking');
+      setProgress(12);
+      await waitForUi();
 
       const bytes = await (await fetch(asset.uri)).arrayBuffer();
+      setProgress(34);
+      await waitForUi();
       const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
-      const unlockedBytes = await pdf.save();
+      setProgress(68);
+      await waitForUi();
+      const unlockedBytes = await pdf.save({ useObjectStreams: false });
+      setProgress(92);
 
       if (Platform.OS === 'web') {
         const blob = new Blob([unlockedBytes], { type: 'application/pdf' });
@@ -82,10 +102,12 @@ export default function HomeScreen() {
         });
         setOutputUri(destination);
       }
+      setProgress(100);
       setStage('success');
     } catch (error) {
       console.error('PDF unlock failed', error);
       setStage('idle');
+      setProgress(0);
       Alert.alert(
         'Could not unlock this PDF',
         'This file may use password encryption rather than a removable security restriction. A password is required for that type of PDF.',
@@ -162,6 +184,17 @@ export default function HomeScreen() {
             <Text style={[styles.uploadHint, { color: tc.textSecondary }]}>
               {stage === 'unlocking' ? 'Removing security restrictions' : 'Tap to choose a PDF from your device'}
             </Text>
+            {stage === 'unlocking' ? (
+              <View style={styles.progressWrap}>
+                <View style={[styles.progressTrack, { backgroundColor: isDark ? '#3F3F46' : '#E2E8F0' }]}>
+                  <View style={[styles.progressFill, { width: `${progress}%` }]} />
+                </View>
+                <View style={styles.progressLabels}>
+                  <Text style={[styles.progressText, { color: tc.textSecondary }]}>Working securely</Text>
+                  <Text style={[styles.progressText, { color: Brand.indigo }]}>{progress}%</Text>
+                </View>
+              </View>
+            ) : null}
             <View style={[styles.fileBadge, { backgroundColor: isDark ? '#27272A' : '#F8FAFC' }]}>
               <IconSymbol name="doc.text.fill" size={14} color={Brand.pdfRed} />
               <Text style={[styles.fileBadgeText, { color: tc.textSecondary }]}>PDF only</Text>
@@ -195,6 +228,10 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
+function waitForUi() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 40));
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { flex: 1, width: '100%', maxWidth: 680, alignSelf: 'center', paddingHorizontal: 24, alignItems: 'center' },
@@ -208,6 +245,11 @@ const styles = StyleSheet.create({
   uploadIcon: { width: 68, height: 68, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   uploadTitle: { fontSize: 20, fontWeight: '800', marginBottom: 8 },
   uploadHint: { fontSize: 14, textAlign: 'center' },
+  progressWrap: { width: '100%', maxWidth: 340, marginTop: 24 },
+  progressTrack: { height: 8, width: '100%', borderRadius: 10, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 10, backgroundColor: Brand.indigo },
+  progressLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  progressText: { fontSize: 12, fontWeight: '700' },
   fileBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, marginTop: 22 },
   fileBadgeText: { fontSize: 12, fontWeight: '700' },
   successCard: { width: '100%', borderRadius: 24, borderWidth: 1, alignItems: 'center', padding: 28 },
