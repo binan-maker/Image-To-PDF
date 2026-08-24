@@ -1,7 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { PDFDocument } from 'pdf-lib';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -86,34 +85,14 @@ export default function HomeScreen() {
       setProgress(12);
       await waitForUi();
 
-      if (Platform.OS === 'android' && NativeModules.PdfUnlocker) {
-        setProgress(30);
-        await waitForUi();
-        const destination = await NativeModules.PdfUnlocker.unlockPdf(asset.uri, password.trim());
-        setProgress(92);
-        setOutputUri(destination);
-      } else {
-        const bytes = await (await fetch(asset.uri)).arrayBuffer();
-        setProgress(34);
-        await waitForUi();
-        const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        setProgress(68);
-        await waitForUi();
-        const unlockedBytes = await pdf.save({ useObjectStreams: false });
-        setProgress(92);
-
-        const blob = new Blob([unlockedBytes], { type: 'application/pdf' });
-        if (Platform.OS === 'web') {
-          setOutputUri(URL.createObjectURL(blob));
-        } else {
-          const base64 = arrayBufferToBase64(unlockedBytes);
-          const destination = `${FileSystem.cacheDirectory ?? FileSystem.documentDirectory}unlocked-${Date.now()}.pdf`;
-          await FileSystem.writeAsStringAsync(destination, base64, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          setOutputUri(destination);
-        }
+      if (Platform.OS !== 'android' || !NativeModules.PdfUnlocker) {
+        throw new Error('Android native PDF engine is not available');
       }
+      setProgress(30);
+      await waitForUi();
+      const destination = await NativeModules.PdfUnlocker.unlockPdf(asset.uri, password.trim());
+      setProgress(92);
+      setOutputUri(destination);
       setProgress(100);
       setStage('success');
     } catch (error) {
@@ -129,13 +108,6 @@ export default function HomeScreen() {
 
   const shareUnlocked = async () => {
     if (!outputUri) return;
-    if (Platform.OS === 'web') {
-      const anchor = document.createElement('a');
-      anchor.href = outputUri;
-      anchor.download = `unlocked-${fileName || 'document.pdf'}`;
-      anchor.click();
-      return;
-    }
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(outputUri, { mimeType: 'application/pdf', dialogTitle: 'Share unlocked PDF' });
     } else {
@@ -250,16 +222,6 @@ export default function HomeScreen() {
       </View>
     </View>
   );
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
 }
 
 function waitForUi() {
